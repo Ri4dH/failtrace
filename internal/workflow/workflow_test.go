@@ -39,7 +39,7 @@ func TestParse(t *testing.T) {
 	if !reflect.DeepEqual(test.Matrix.Values["go"], []string{"1.22", "1.23"}) {
 		t.Errorf("matrix go = %q", test.Matrix.Values["go"])
 	}
-	if len(test.Services) != 1 || test.Services[0] != (Service{Name: "postgres", Image: "postgres:16"}) {
+	if len(test.Services) != 1 || !reflect.DeepEqual(test.Services[0], Service{Name: "postgres", Image: "postgres:16", Ports: []string{"5432:5432"}, Env: map[string]string{"POSTGRES_PASSWORD": "postgres"}}) {
 		t.Errorf("services = %+v", test.Services)
 	}
 	if got := test.Steps[3].With["fail_ci_if_error"]; got != "true" {

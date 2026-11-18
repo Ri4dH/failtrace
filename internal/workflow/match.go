@@ -83,6 +83,13 @@ func (w *Workflow) matchCandidate(name string) *JobMatch {
 	return nil
 }
 
+// MatchesTemplate reports whether name is an evaluation of tpl, a string
+// containing ${{ }} expressions (e.g. "Lint ${{ matrix.tool }}").
+func MatchesTemplate(tpl, name string) bool {
+	_, ok := matchTemplate(tpl, name)
+	return ok
+}
+
 // matchTemplate matches a name containing ${{ }} expressions against an
 // evaluated name and returns the values bound to ${{ matrix.<key> }}.
 func matchTemplate(tpl, name string) (map[string]string, bool) {

@@ -1,0 +1,44 @@
+name: CI
+on: [push, pull_request]
+
+env:
+  GOFLAGS: -mod=readonly
+
+jobs:
+  test:
+    name: test (${{ matrix.go }})
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        go: ['1.22']
+    env:
+      API_TOKEN: ${{ secrets.API_TOKEN }}
+      BUILD_ID: ${{ github.run_id }}-${{ matrix.go }}
+      REGION: ${{ vars.REGION }}
+    services:
+      postgres:
+        image: postgres:16
+        ports: ['5432:5432']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache
+      - uses: ./.github/actions/setup-tools
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+      # Skipped in CI, and its templated command looks like the next step's.
+      - name: Unit tests
+        if: github.event_name == 'push'
+        run: go test -run ${{ matrix.suite }} ./...
+      - name: Integration tests
+        working-directory: ./service
+        run: |
+          go test -run Integration ./...
+          go vet ./...
+        env:
+          DATABASE_URL: postgres://postgres@localhost:5432/test

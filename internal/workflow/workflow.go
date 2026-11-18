@@ -40,8 +40,10 @@ type Job struct {
 
 // Service is a service container attached to a job.
 type Service struct {
-	Name  string `json:"name"`
-	Image string `json:"image,omitempty"`
+	Name  string            `json:"name"`
+	Image string            `json:"image,omitempty"`
+	Ports []string          `json:"ports,omitempty"`
+	Env   map[string]string `json:"env,omitempty"`
 }
 
 // Matrix is a job's strategy.matrix. Keys preserve definition order, which is
@@ -254,9 +256,19 @@ func parseServices(n *yaml.Node) []Service {
 	}
 	var out []Service
 	for i := 0; i+1 < len(n.Content); i += 2 {
+		def := n.Content[i+1]
 		svc := Service{Name: n.Content[i].Value}
-		if img := mappingValue(n.Content[i+1], "image"); img != nil {
+		if img := mappingValue(def, "image"); img != nil {
 			svc.Image = img.Value
+		}
+		if ports := mappingValue(def, "ports"); ports != nil {
+			svc.Ports = scalarList(ports)
+		}
+		if env := mappingValue(def, "env"); env != nil {
+			var m stringMap
+			if err := m.UnmarshalYAML(env); err == nil {
+				svc.Env = m
+			}
 		}
 		out = append(out, svc)
 	}

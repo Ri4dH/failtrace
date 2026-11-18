@@ -68,6 +68,20 @@ type JobReport struct {
 	FailedStep  *FailedStep       `json:"failed_step,omitempty"`
 	Failure     *joblog.Failure   `json:"failure,omitempty"`
 	Notes       []string          `json:"notes,omitempty"`
+
+	// Evidence is the raw material behind this report, for later stages such
+	// as planning. It is not serialised.
+	Evidence *Evidence `json:"-"`
+}
+
+// Evidence holds the parsed inputs a JobReport was built from. Any field may
+// be nil when the corresponding source was unavailable.
+type Evidence struct {
+	Workflow *workflow.Workflow
+	Job      *workflow.Job
+	Log      *joblog.Log
+	Failed   *joblog.Section // the failing step's log section
+	API      github.Job
 }
 
 // StepStatus is one step's outcome as reported by the API.
@@ -187,6 +201,8 @@ func loadWorkflow(ctx context.Context, api API, ref runurl.Ref, run *github.Run,
 
 func inspectJob(ctx context.Context, api API, ref runurl.Ref, wf *workflow.Workflow, j github.Job, opts Options, rep *Report) JobReport {
 	jr := JobReport{ID: j.ID, Name: j.Name, URL: j.HTMLURL, Conclusion: j.Conclusion, RunsOn: j.Labels}
+	ev := &Evidence{Workflow: wf, API: j}
+	jr.Evidence = ev
 
 	var failed *github.Step
 	names := make([]string, 0, len(j.Steps))
@@ -214,6 +230,7 @@ func inspectJob(ctx context.Context, api API, ref runurl.Ref, wf *workflow.Workf
 	if wf != nil {
 		if m := wf.MatchJob(j.Name); m != nil {
 			wfJob = m.Job
+			ev.Job = m.Job
 			jr.WorkflowJob, jr.JobGuessed, jr.Matrix = m.Job.ID, m.Guessed, m.Matrix
 			if failed != nil {
 				if idx := m.Job.MatchStep(failed.Name, failed.Number, names); idx >= 0 {
@@ -234,7 +251,9 @@ func inspectJob(ctx context.Context, api API, ref runurl.Ref, wf *workflow.Workf
 	}
 	lg := joblog.Parse(text)
 	jr.Runner = lg.Runner
+	ev.Log = lg
 	if sec := lg.FailedSection(); sec != nil {
+		ev.Failed = sec
 		jr.Failure = joblog.Analyze(sec, opts.ExcerptLines)
 	}
 	return jr

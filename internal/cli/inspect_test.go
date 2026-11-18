@@ -16,6 +16,9 @@ func TestInspectRejectsBadInputBeforeNetwork(t *testing.T) {
 		{[]string{"inspect", "https://github.com/acme/widget/pull/1"}, "not a GitHub Actions run URL"},
 		{[]string{"inspect", "--lines", "0", "https://github.com/acme/widget/actions/runs/1"}, "--lines must be between"},
 		{[]string{"inspect", "--job", "-5", "https://github.com/acme/widget/actions/runs/1"}, "--job must be a positive"},
+		{[]string{"plan"}, "accepts 1 arg"},
+		{[]string{"plan", "https://gitlab.com/acme/widget/-/pipelines/1"}, "not a GitHub Actions run URL"},
+		{[]string{"plan", "--job", "-1", "https://github.com/acme/widget/actions/runs/1"}, "--job must be a positive"},
 	}
 	for _, c := range cases {
 		cmd := NewRootCmd("test")

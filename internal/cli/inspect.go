@@ -8,10 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Ri4dH/failtrace/internal/github"
 	"github.com/Ri4dH/failtrace/internal/inspect"
 	"github.com/Ri4dH/failtrace/internal/report"
-	"github.com/Ri4dH/failtrace/internal/runurl"
 )
 
 const maxExcerptLines = 500
@@ -47,30 +45,18 @@ func runInspect(ctx context.Context, out io.Writer, rawURL string, opts inspectO
 	if opts.lines < 1 || opts.lines > maxExcerptLines {
 		return fmt.Errorf("--lines must be between 1 and %d", maxExcerptLines)
 	}
-	ref, err := runurl.Parse(rawURL)
-	if err != nil {
-		return err
-	}
-	if opts.jobID < 0 {
-		return fmt.Errorf("--job must be a positive job ID")
-	}
-	if opts.jobID != 0 {
-		ref.JobID = opts.jobID
-	}
-	token, err := github.ResolveToken(ctx, ref.Host)
-	if err != nil {
-		return err
-	}
-	client := github.NewClient(ref.APIBase(), token)
-
-	rep, err := inspect.Run(ctx, client, ref, inspect.Options{ExcerptLines: opts.lines})
+	f, err := fetchRun(ctx, rawURL, opts.jobID, opts.lines)
 	if err != nil {
 		return err
 	}
 	if opts.json {
-		enc := json.NewEncoder(out)
-		enc.SetIndent("", "  ")
-		return enc.Encode(rep)
+		return writeJSON(out, f.report)
 	}
-	return report.WriteText(out, rep, report.TextOptions{Color: colorEnabled(out)})
+	return report.WriteText(out, f.report, report.TextOptions{Color: colorEnabled(out)})
+}
+
+func writeJSON(out io.Writer, v any) error {
+	enc := json.NewEncoder(out)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
 }

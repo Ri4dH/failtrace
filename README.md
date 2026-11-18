@@ -10,8 +10,9 @@ you and reproducing it on your machine.
 failtrace inspect https://github.com/owner/repo/actions/runs/123456789
 ```
 
-> **Status: early development.** `inspect` (diagnosis) works today. Local reproduction in an isolated
-> container (`plan` / `repro`) is the next milestone. See the [roadmap](#roadmap).
+> **Status: early development.** `inspect` (diagnosis) and `plan` (a dry-run reproduction plan) work
+> today. Executing the plan in an isolated container (`repro`) is the next milestone. See the
+> [roadmap](#roadmap).
 
 ## Why not `act`?
 
@@ -146,11 +147,82 @@ the API base becomes `https://<host>/api/v3`.
 It also explains edge cases instead of failing silently: runs that failed before any job started, dynamic
 workflows with no file in the repo, and logs that have expired.
 
+## Planning a reproduction
+
+`failtrace plan` works out how to reproduce the failed job locally and prints the plan. It doesn't run
+anything yet.
+
+```bash
+failtrace plan https://github.com/owner/repo/actions/runs/123456789
+failtrace plan --job 987654321 <run-url>     # pick a job when several failed
+failtrace plan --json <run-url>              # the full plan, including every env var
+```
+
+Real output for a failed [pytest-dev/pytest](https://github.com/pytest-dev/pytest) job (trimmed):
+
+```text
+Reproduction plan · pytest-dev/pytest
+  Job        build (ubuntu-py311)  (jobs.build)
+  Verdict    PARTIAL: can run, but the warnings below may make it differ from CI
+  Image      ubuntu:26.04  linux/amd64
+             matches the runner image ubuntu-26.04 20261111.196.1
+  Commit     c484767
+
+  Toolchains
+    python   3.11.18    exact · asked for "3.11" · from actions/setup-python@6d4fd22
+    uv       0.13.8     exact · from astral-sh/setup-uv@11f9893
+
+  Steps
+    1  checkout    Run actions/checkout@3d3c42e
+                    pytest-dev/pytest @ c484767 (merge of 58b8dae into 50234b4)
+    2  skip        Download Package
+                    — downloads artifacts from another job
+    3  toolchain   Set up Python 3.11
+                    → install python 3.11.18
+    4  composite   Run pytest-dev/pytest/.github/actions/setup-tox@c484767
+                    — composite action; its steps follow
+    5    toolchain   Run astral-sh/setup-uv@11f9893
+                      → install uv 0.13.8
+    6    run         $ if [ -n "$PYTHON_VERSION" ]; then  (+4 lines)
+    7  run         Test with coverage  ← failed in CI
+                    $ tox run -e py311-coverage --installpkg `find dist/*.tar.gz`
+                    shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+
+  Issues
+    ! [step 2] actions/download-artifact@9000827 downloads artifacts produced by another job or run; files it provides will be missing locally
+    i [step 1] CI tested the merge of PR head 58b8dae into base 50234b4 (merge commit c484767), not the PR branch alone; the plan checks out that merge commit
+```
+
+How the plan is built:
+
+- **The log is the source of truth for what ran.** Scripts, shells and environment come from the step
+  headers GitHub prints, so `${{ matrix.* }}` and other expressions are already filled in. Composite
+  actions show their inner steps.
+- **The exact commit CI tested.** For pull requests that's a merge commit GitHub created, not your branch
+  head. This is a common reason a failure "doesn't happen locally".
+- **The exact toolchain versions.** `"3.11"` in the workflow becomes `3.11.18`, read from the runner's
+  tool cache paths. When the log doesn't show a version, it reads version files such as `go.mod`
+  (including `toolchain`), `.nvmrc`, `.python-version`, `.tool-versions` and `packageManager` in
+  `package.json`.
+- **The right base image.** A job `container:` is used as is. Otherwise it picks the Ubuntu version
+  matching the runner image the job actually got.
+- **What to skip and what to flag.** Caches, uploads and coverage reporters are skipped. Downloaded
+  artifacts, service containers, secrets, unknown actions, and tools used without a setup step (they were
+  preinstalled on the runner) are reported as issues.
+
+The **verdict** is `ready` (nothing known to be missing), `partial` (it can run, but some parts are
+approximated or missing) or `blocked` (the failing step is an action, not a script, so it can't be replayed
+yet).
+
+Supported setup actions: `actions/setup-go`, `setup-node`, `setup-python`, `setup-java`, `setup-dotnet`,
+`ruby/setup-ruby`, `dtolnay/rust-toolchain`, `actions-rust-lang/setup-rust-toolchain`,
+`pnpm/action-setup`, `pnpm/setup`, `astral-sh/setup-uv`, `oven-sh/setup-bun` and `denoland/setup-deno`.
+
 ## Roadmap
 
 - [x] **`inspect`**: diagnose a failed run from its URL
-- [ ] **`plan`**: turn the failed job into a local reproduction plan: base image, toolchain versions from
-  `setup-go` / `setup-node` / `setup-python`, env, working directory, steps to replay
+- [x] **`plan`**: turn the failed job into a local reproduction plan: base image, exact commit, toolchain
+  versions, env, steps to replay
 - [ ] **`repro`**: run the plan in an isolated Docker container, then compare exit code and error signature
   with CI
 - [ ] **Reports**: Markdown report with a verdict (reproduced / not reproduced) and the environment
@@ -181,6 +253,7 @@ internal/github/    minimal GitHub REST client and token lookup
 internal/joblog/    job log parsing, failure extraction and classification
 internal/workflow/  workflow YAML parsing, job/step/matrix matching
 internal/inspect/   puts it all together into a report
+internal/plan/      builds reproduction plans (image, commit, toolchains, env, steps)
 internal/report/    terminal rendering
 ```
 
@@ -191,6 +264,8 @@ Issues and pull requests are welcome. The most useful contributions right now:
 - **Failed runs that FailTrace gets wrong.** Open an issue with the run URL and what you expected.
 - **New failure signatures:** test runners, package managers and compilers that aren't detected yet.
   These live in `internal/joblog/analyze.go` and need a test case.
+- **More known actions:** setup actions (`internal/plan/toolchains.go`) and actions that are safe to
+  skip locally (`internal/plan/actions.go`). Each one is a single table entry.
 
 ## License
 

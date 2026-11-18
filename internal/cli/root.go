@@ -20,7 +20,7 @@ func NewRootCmd(version string) *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(newInspectCmd())
+	root.AddCommand(newInspectCmd(), newPlanCmd())
 	return root
 }
 

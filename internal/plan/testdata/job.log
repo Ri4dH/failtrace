@@ -1,0 +1,62 @@
+2026-11-17T10:00:00.0000000Z Current runner version: '2.338.2'
+2026-11-17T10:00:00.0000000Z ##[group]Runner Image
+2026-11-17T10:00:00.0000000Z Image: ubuntu-24.04
+2026-11-17T10:00:00.0000000Z Version: 20261111.1
+2026-11-17T10:00:00.0000000Z ##[endgroup]
+2026-11-17T10:00:01.0000000Z ##[group]Run actions/checkout@v4
+2026-11-17T10:00:01.0000000Z with:
+2026-11-17T10:00:01.0000000Z   repository: acme/widget
+2026-11-17T10:00:01.0000000Z   token: ***
+2026-11-17T10:00:01.0000000Z   fetch-depth: 1
+2026-11-17T10:00:01.0000000Z   submodules: false
+2026-11-17T10:00:01.0000000Z env:
+2026-11-17T10:00:01.0000000Z   GOFLAGS: -mod=readonly
+2026-11-17T10:00:01.0000000Z ##[endgroup]
+2026-11-17T10:00:01.0000000Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +1111111111111111111111111111111111111111:refs/remotes/pull/7/merge
+2026-11-17T10:00:02.0000000Z HEAD is now at 1111111 Merge 2222222222222222222222222222222222222222 into 3333333333333333333333333333333333333333
+2026-11-17T10:00:02.0000000Z ##[group]Run actions/setup-go@v5
+2026-11-17T10:00:02.0000000Z with:
+2026-11-17T10:00:02.0000000Z   go-version: 1.22
+2026-11-17T10:00:02.0000000Z env:
+2026-11-17T10:00:02.0000000Z   GOFLAGS: -mod=readonly
+2026-11-17T10:00:02.0000000Z ##[endgroup]
+2026-11-17T10:00:02.0000000Z Setup go version spec 1.22
+2026-11-17T10:00:03.0000000Z Successfully cached go to /opt/hostedtoolcache/go/1.22.7/x64
+2026-11-17T10:00:03.0000000Z ##[group]Run actions/cache@v4
+2026-11-17T10:00:03.0000000Z with:
+2026-11-17T10:00:03.0000000Z   path: ~/.cache
+2026-11-17T10:00:03.0000000Z ##[endgroup]
+2026-11-17T10:00:03.0000000Z Cache not found
+2026-11-17T10:00:04.0000000Z ##[group]Run acme/widget/.github/actions/setup-tools@1111111111111111111111111111111111111111
+2026-11-17T10:00:04.0000000Z ##[endgroup]
+2026-11-17T10:00:04.0000000Z ##[group]Run astral-sh/setup-uv@v5
+2026-11-17T10:00:04.0000000Z ##[endgroup]
+2026-11-17T10:00:04.0000000Z Successfully installed uv version 0.5.1
+2026-11-17T10:00:05.0000000Z ##[group]Run make tools
+2026-11-17T10:00:05.0000000Z make tools
+2026-11-17T10:00:05.0000000Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-17T10:00:05.0000000Z env:
+2026-11-17T10:00:05.0000000Z   GOFLAGS: -mod=readonly
+2026-11-17T10:00:05.0000000Z ##[endgroup]
+2026-11-17T10:00:05.0000000Z installing tools
+2026-11-17T10:00:06.0000000Z ##[group]Run actions/download-artifact@v4
+2026-11-17T10:00:06.0000000Z with:
+2026-11-17T10:00:06.0000000Z   name: dist
+2026-11-17T10:00:06.0000000Z ##[endgroup]
+2026-11-17T10:00:07.0000000Z ##[group]Run go test -run Integration ./...
+2026-11-17T10:00:07.0000000Z go test -run Integration ./...
+2026-11-17T10:00:07.0000000Z go vet ./...
+2026-11-17T10:00:07.0000000Z shell: /usr/bin/bash -e {0}
+2026-11-17T10:00:07.0000000Z env:
+2026-11-17T10:00:07.0000000Z   GOFLAGS: -mod=readonly
+2026-11-17T10:00:07.0000000Z   API_TOKEN: ***
+2026-11-17T10:00:07.0000000Z   BUILD_ID: 42-1.22
+2026-11-17T10:00:07.0000000Z   DATABASE_URL: postgres://postgres@localhost:5432/test
+2026-11-17T10:00:07.0000000Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.1/x64
+2026-11-17T10:00:07.0000000Z   EXTRA: from-github-env
+2026-11-17T10:00:07.0000000Z ##[endgroup]
+2026-11-17T10:00:08.0000000Z --- FAIL: TestIntegration (0.00s)
+2026-11-17T10:00:08.0000000Z FAIL
+2026-11-17T10:00:08.0000000Z ##[error]Process completed with exit code 1.
+2026-11-17T10:00:09.0000000Z Post job cleanup.
+2026-11-17T10:00:09.0000000Z Cleaning up orphan processes
