@@ -1,0 +1,12 @@
+/failtrace
+/bin/
+/dist/
+*.test
+*.out
+coverage.*
+.DS_Store
+.env
+.env.*
+
+# Local Claude Code settings
+.claude/settings.local.json

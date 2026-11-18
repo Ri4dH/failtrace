@@ -1,0 +1,67 @@
+name: CI
+on: [push, pull_request]
+
+env:
+  GOFLAGS: -mod=readonly
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        go: ['1.22', '1.23']
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+    services:
+      postgres:
+        image: postgres:16
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+      - run: |
+          go test ./...
+          go vet ./...
+        env:
+          CGO_ENABLED: 0
+      - name: Upload coverage
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
+
+  lint:
+    name: Lint ${{ matrix.tool }}
+    runs-on: ubuntu-latest
+    container:
+      image: golang:1.23
+    strategy:
+      matrix:
+        include:
+          - tool: golangci
+          - tool: gofmt
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run ${{ matrix.tool }}
+        working-directory: tools
+        run: make lint-${{ matrix.tool }}
+
+  build:
+    runs-on: [self-hosted, linux]
+    needs: test
+    env: ${{ fromJSON(vars.BUILD_ENV) }}
+    steps:
+      - run: make build
+
+  deploy:
+    needs: [test, lint]
+    uses: ./.github/workflows/deploy.yml
+    secrets: inherit

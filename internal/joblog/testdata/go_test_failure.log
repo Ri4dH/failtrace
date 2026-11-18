@@ -1,0 +1,42 @@
+2026-11-17T10:00:00.0000000Z Current runner version: '2.338.2'
+2026-11-17T10:00:00.0000000Z ##[group]Operating System
+2026-11-17T10:00:00.0000000Z Ubuntu
+2026-11-17T10:00:00.0000000Z 24.04.1
+2026-11-17T10:00:00.0000000Z LTS
+2026-11-17T10:00:00.0000000Z ##[endgroup]
+2026-11-17T10:00:00.0000000Z ##[group]Runner Image
+2026-11-17T10:00:00.0000000Z Image: ubuntu-24.04
+2026-11-17T10:00:00.0000000Z Version: 20261111.196.1
+2026-11-17T10:00:00.0000000Z Included Software: https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md
+2026-11-17T10:00:00.0000000Z ##[endgroup]
+2026-11-17T10:00:00.0000000Z Prepare workflow directory
+2026-11-17T10:00:00.0000000Z Prepare all required actions
+2026-11-17T10:00:00.0000000Z Complete job name: test (ubuntu-latest, 1.22)
+2026-11-17T10:00:01.0000000Z ##[group]Run actions/checkout@v4
+2026-11-17T10:00:01.0000000Z with:
+2026-11-17T10:00:01.0000000Z   repository: acme/widget
+2026-11-17T10:00:01.0000000Z   token: ***
+2026-11-17T10:00:01.0000000Z ##[endgroup]
+2026-11-17T10:00:01.0000000Z Syncing repository: acme/widget
+2026-11-17T10:00:02.0000000Z ##[group]Run actions/setup-go@v5
+2026-11-17T10:00:02.0000000Z with:
+2026-11-17T10:00:02.0000000Z   go-version: 1.22
+2026-11-17T10:00:02.0000000Z ##[endgroup]
+2026-11-17T10:00:02.0000000Z Setup go version spec 1.22
+2026-11-17T10:00:03.0000000Z ##[group]Run go test ./...
+2026-11-17T10:00:03.0000000Z go test ./...
+2026-11-17T10:00:03.0000000Z shell: /usr/bin/bash -e {0}
+2026-11-17T10:00:03.0000000Z env:
+2026-11-17T10:00:03.0000000Z   CGO_ENABLED: 0
+2026-11-17T10:00:03.0000000Z ##[endgroup]
+2026-11-17T10:00:05.0000000Z ok  	github.com/acme/widget/internal/cache	0.012s
+2026-11-17T10:00:05.0000000Z --- FAIL: TestParseConfig (0.00s)
+2026-11-17T10:00:05.0000000Z     --- FAIL: TestParseConfig/empty_file (0.00s)
+2026-11-17T10:00:05.0000000Z         config_test.go:42: expected error for empty file, got nil
+2026-11-17T10:00:05.0000000Z FAIL
+2026-11-17T10:00:05.0000000Z FAIL	github.com/acme/widget/internal/config	0.004s
+2026-11-17T10:00:05.0000000Z FAIL
+2026-11-17T10:00:05.0000000Z ##[error]Process completed with exit code 1.
+2026-11-17T10:00:06.0000000Z Post job cleanup.
+2026-11-17T10:00:06.0000000Z [command]/usr/bin/git version
+2026-11-17T10:00:06.0000000Z Cleaning up orphan processes
