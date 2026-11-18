@@ -191,3 +191,7 @@ Issues and pull requests are welcome. The most useful contributions right now:
 - **Failed runs that FailTrace gets wrong.** Open an issue with the run URL and what you expected.
 - **New failure signatures:** test runners, package managers and compilers that aren't detected yet.
   These live in `internal/joblog/analyze.go` and need a test case.
+
+## License
+
+[MIT](LICENSE)
