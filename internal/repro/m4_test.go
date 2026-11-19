@@ -103,7 +103,12 @@ func TestShellOpensAtTheFailingStep(t *testing.T) {
 	if res == nil {
 		t.Fatal("no result")
 	}
-	sh := eng.execs[len(eng.execs)-1]
+	var sh docker.ExecOptions
+	for _, e := range eng.execs {
+		if e.Stdin != nil {
+			sh = e
+		}
+	}
 	if sh.Stdin == nil || !sh.TTY || sh.Stdout != &term || sh.Cmd[0] != "sh" {
 		t.Fatalf("shell exec = %+v", sh)
 	}

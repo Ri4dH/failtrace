@@ -1,0 +1,82 @@
+# Release configuration. A pushed tag like v0.1.0 runs .github/workflows/release.yml,
+# which builds these archives and publishes a GitHub release.
+# Try it locally without publishing: goreleaser release --snapshot --clean
+version: 2
+
+project_name: failtrace
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: failtrace
+    main: ./cmd/failtrace
+    binary: failtrace
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }} -X main.commit={{ .FullCommit }} -X main.date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    # failtrace_0.1.0_darwin_arm64.tar.gz; scripts/install.sh relies on this name.
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+# Publishes a cask to Ri4dH/homebrew-tap when HOMEBREW_TAP_TOKEN is set in the
+# release workflow; without it the release still works and the cask is skipped.
+homebrew_casks:
+  - name: failtrace
+    binaries: [failtrace]
+    homepage: https://github.com/Ri4dH/failtrace
+    description: Reproduce failed GitHub Actions runs locally
+    license: MIT
+    repository:
+      owner: Ri4dH
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    commit_author:
+      name: Ri4dH
+      email: 150310057+Ri4dH@users.noreply.github.com
+    skip_upload: '{{ if index .Env "HOMEBREW_TAP_TOKEN" }}false{{ else }}true{{ end }}'
+    hooks:
+      post:
+        # The binaries are not notarized; let macOS run the one Homebrew installed.
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/failtrace"]
+          end
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+release:
+  github:
+    owner: Ri4dH
+    name: failtrace
+  prerelease: auto
+  footer: |
+    **Install:** `curl -fsSL https://raw.githubusercontent.com/Ri4dH/failtrace/main/scripts/install.sh | sh`
+    or `go install github.com/Ri4dH/failtrace/cmd/failtrace@{{ .Tag }}`

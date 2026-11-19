@@ -281,18 +281,33 @@ func (r *runner) makeDirs() error {
 }
 
 func (r *runner) cleanup(ctx context.Context, res *Result) {
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+	defer cancel()
+	r.reclaimWorkspace(cctx)
 	if r.opts.Keep {
 		res.Container, res.Workspace = r.name, r.hostWorkspace
 		return
 	}
-	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-	defer cancel()
 	ids := append([]string{}, r.services...)
 	if r.container != "" {
 		ids = append(ids, r.container)
 	}
 	_ = r.deps.Engine.Remove(cctx, ids...)
 	_ = os.RemoveAll(r.hostBase)
+}
+
+// reclaimWorkspace hands files the container created back to the host user.
+// Steps run as root, and on Linux hosts root-owned files in the bind mount
+// could otherwise not be removed (or edited, with --keep) afterwards.
+func (r *runner) reclaimWorkspace(ctx context.Context) {
+	uid, gid := os.Getuid(), os.Getgid()
+	if r.container == "" || uid < 0 {
+		return // no container yet, or a platform without Unix ownership
+	}
+	owner := fmt.Sprintf("%d:%d", uid, gid)
+	_, _ = r.deps.Engine.Exec(ctx, docker.ExecOptions{
+		Container: r.container, Cmd: []string{"chown", "-R", owner, r.containerRoot}, Stdout: io.Discard, Stderr: io.Discard,
+	})
 }
 
 func (r *runner) startContainers(ctx context.Context, image, platform string) error {

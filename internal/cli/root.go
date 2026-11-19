@@ -11,22 +11,24 @@ import (
 )
 
 // NewRootCmd builds the top-level command.
-func NewRootCmd(version string) *cobra.Command {
+func NewRootCmd(info BuildInfo) *cobra.Command {
+	info = info.resolve()
 	root := &cobra.Command{
 		Use:           "failtrace",
 		Short:         "Stop guessing why CI failed. Reproduce it locally.",
 		Long:          "FailTrace takes a failed GitHub Actions run URL, finds the step that failed, and explains why.",
-		Version:       version,
+		Version:       info.String(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(newInspectCmd(), newPlanCmd(), newReproCmd())
+	root.SetVersionTemplate("failtrace {{.Version}}\n")
+	root.AddCommand(newInspectCmd(), newPlanCmd(), newReproCmd(), newVersionCmd(info))
 	return root
 }
 
 // Execute runs the CLI and returns the process exit code.
-func Execute(ctx context.Context, version string) int {
-	if err := NewRootCmd(version).ExecuteContext(ctx); err != nil {
+func Execute(ctx context.Context, info BuildInfo) int {
+	if err := NewRootCmd(info).ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, "failtrace:", err)
 		return 1
 	}

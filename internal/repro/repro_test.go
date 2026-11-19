@@ -257,6 +257,10 @@ func TestRunReproduced(t *testing.T) {
 	if len(eng.removed) != 2 {
 		t.Errorf("removed = %q, want job and service containers", eng.removed)
 	}
+	chown := eng.execs[len(eng.execs)-1]
+	if chown.Cmd[0] != "chown" || chown.Cmd[1] != "-R" || chown.Cmd[3] != "/home/runner/work" || chown.Cmd[2] != fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()) {
+		t.Errorf("the workspace should be handed back to the host user before removal: %q", chown.Cmd)
+	}
 	if entries, _ := os.ReadDir(filepath.Dir(eng.hostRoot)); len(entries) != 0 {
 		t.Errorf("workspace left behind: %v", entries)
 	}

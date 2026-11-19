@@ -34,7 +34,7 @@ func TestInspectRejectsBadInputBeforeNetwork(t *testing.T) {
 		{[]string{"repro", "--report", ".", "https://github.com/acme/widget/actions/runs/1"}, "is a directory"},
 	}
 	for _, c := range cases {
-		cmd := NewRootCmd("test")
+		cmd := NewRootCmd(BuildInfo{Version: "test"})
 		cmd.SetArgs(c.args)
 		cmd.SetOut(&bytes.Buffer{})
 		cmd.SetErr(&bytes.Buffer{})
@@ -42,5 +42,26 @@ func TestInspectRejectsBadInputBeforeNetwork(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%v: err = %v, want containing %q", c.args, err, c.want)
 		}
+	}
+}
+
+func TestVersion(t *testing.T) {
+	var out bytes.Buffer
+	cmd := NewRootCmd(BuildInfo{Version: "v1.2.3", Commit: "0123456789abcdef0123", Date: "2026-11-18T00:00:00Z"})
+	cmd.SetArgs([]string{"version"})
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(out.String(), "failtrace v1.2.3 (0123456789ab, 2026-11-18T00:00:00Z) ") {
+		t.Errorf("version = %q", out.String())
+	}
+	out.Reset()
+	cmd = NewRootCmd(BuildInfo{Version: "v1.2.3"})
+	cmd.SetArgs([]string{"--version"})
+	cmd.SetOut(&out)
+	_ = cmd.Execute()
+	if !strings.HasPrefix(out.String(), "failtrace v1.2.3") {
+		t.Errorf("--version = %q", out.String())
 	}
 }

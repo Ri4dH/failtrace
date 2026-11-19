@@ -1,5 +1,9 @@
 # FailTrace
 
+[![CI](https://github.com/Ri4dH/failtrace/actions/workflows/ci.yml/badge.svg)](https://github.com/Ri4dH/failtrace/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/Ri4dH/failtrace?sort=semver)](https://github.com/Ri4dH/failtrace/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **Stop guessing why CI failed. Reproduce it locally.**
 
 ![FailTrace reproducing a failed stretchr/testify CI run in Docker](docs/demo.gif)
@@ -72,13 +76,26 @@ line so you see the cause, `go mod tidy` changing `go.mod`, instead of the noise
 
 ## Install
 
-Requires Go 1.24+.
+**macOS and Linux**, using the install script. It downloads the latest release for your platform and
+verifies its SHA-256 checksum:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ri4dH/failtrace/main/scripts/install.sh | sh
+```
+
+It installs to `/usr/local/bin` if that's writable, otherwise to `~/.local/bin`. Set
+`FAILTRACE_INSTALL_DIR` to choose, or `FAILTRACE_VERSION=v0.1.0` to pin a release.
+
+**Prebuilt binaries** for macOS, Linux and Windows (amd64 and arm64) are on the
+[releases page](https://github.com/Ri4dH/failtrace/releases), with a `checksums.txt`.
+
+**With Go** 1.24+:
 
 ```bash
 go install github.com/Ri4dH/failtrace/cmd/failtrace@latest
 ```
 
-Or build from source:
+**From source:**
 
 ```bash
 git clone https://github.com/Ri4dH/failtrace
@@ -351,7 +368,8 @@ code you're comfortable executing.
 - [x] **Reports**: `--report` writes a Markdown report with the verdict and the differences from CI
 - [x] **Flaky detection**: `--runs N` repeats the failing step and reports `flaky`
 - [x] **`--shell`**: drop into the container at the failing step
-- [ ] **Distribution**: release binaries, Homebrew, and a `gh failtrace` extension
+- [x] **Releases**: prebuilt binaries for macOS, Linux and Windows, and a checksum-verifying install script
+- [ ] **Homebrew and `gh` extension**: `brew install` and `gh failtrace <run-url>`
 - [ ] **Replaying common actions:** translate actions such as `golangci-lint-action` into the commands
   they run, so failures in them can be reproduced too
 
@@ -362,7 +380,11 @@ go test ./...                                     # unit tests (no network or Do
 go test -race ./...
 go vet ./...
 go test -tags integration ./internal/repro/       # runs real containers; needs Docker
+goreleaser release --snapshot --clean             # build release archives locally, publish nothing
 ```
+
+CI runs all of the above on every pull request. To publish a release, push a version tag (`git tag v0.1.0 &&
+git push origin v0.1.0`); [release.yml](.github/workflows/release.yml) builds and uploads the binaries.
 
 Project layout:
 
