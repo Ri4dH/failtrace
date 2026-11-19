@@ -46,6 +46,8 @@ type ExecOptions struct {
 	Workdir   string
 	Env       map[string]string // passed via the process environment, not argv
 	Cmd       []string
+	Stdin     io.Reader // attach stdin (docker exec -i)
+	TTY       bool      // allocate a pseudo-terminal (docker exec -t)
 	Stdout    io.Writer
 	Stderr    io.Writer
 }
@@ -143,6 +145,12 @@ func (c *CLI) Run(ctx context.Context, o RunOptions) (string, error) {
 // error means the command could not be run at all.
 func (c *CLI) Exec(ctx context.Context, o ExecOptions) (int, error) {
 	args := []string{"exec"}
+	if o.Stdin != nil {
+		args = append(args, "--interactive")
+	}
+	if o.TTY {
+		args = append(args, "--tty")
+	}
 	if o.Workdir != "" {
 		args = append(args, "--workdir", o.Workdir)
 	}
@@ -151,7 +159,7 @@ func (c *CLI) Exec(ctx context.Context, o ExecOptions) (int, error) {
 	args = append(args, o.Cmd...)
 	cmd := exec.CommandContext(ctx, c.bin(), args...)
 	cmd.Env = withEnv(o.Env)
-	cmd.Stdout, cmd.Stderr = o.Stdout, o.Stderr
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = o.Stdin, o.Stdout, o.Stderr
 	err := cmd.Run()
 	var exitErr *exec.ExitError
 	switch {

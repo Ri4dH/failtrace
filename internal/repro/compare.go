@@ -15,6 +15,7 @@ const (
 	VerdictDifferent     Verdict = "different-failure" // the step failed locally, but differently
 	VerdictNotReproduced Verdict = "not-reproduced"    // the step passed locally
 	VerdictDiverged      Verdict = "diverged"          // an earlier step failed locally, so the target never ran
+	VerdictFlaky         Verdict = "flaky"             // with --runs, the step failed in some runs but not all
 )
 
 // analyzeLocal summarises the failing step's local output with the same
@@ -54,7 +55,7 @@ func compare(ci, local *joblog.Failure, localExit int) (Verdict, []string) {
 	}
 	switch {
 	case ci.Signature != "" && ci.Signature == local.Signature:
-		return VerdictReproduced, []string{"the same error: " + local.Signature}
+		return VerdictReproduced, []string{"the same error: `" + local.Signature + "`"}
 	case ciExit == localExit && ci.Category == local.Category && ci.Category != joblog.CategoryUnknown:
 		return VerdictReproduced, []string{fmt.Sprintf("the same exit code (%d) and kind of failure (%s)", localExit, local.Category)}
 	case ciExit == localExit:

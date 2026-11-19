@@ -231,6 +231,9 @@ failtrace repro --keep <run-url>                     # keep the container to pok
 API_TOKEN=... failtrace repro --secret API_TOKEN <run-url>
 failtrace repro --toolchain node=20.11.1 <run-url>   # fill in or override a toolchain
 failtrace repro --platform linux/arm64 <run-url>     # run natively on Apple silicon (faster, less exact)
+failtrace repro --runs 10 <run-url>                  # is it flaky?
+failtrace repro --shell <run-url>                    # debug inside the container afterwards
+failtrace repro --report repro.md <run-url>          # Markdown report for an issue or PR
 ```
 
 You need Docker (Docker Desktop, colima, OrbStack, …) and git.
@@ -292,8 +295,37 @@ What happens:
    - `different-failure`
    - `not-reproduced`: the step passed locally.
    - `diverged`: an earlier step failed locally, so the failing step never ran.
+   - `flaky`: with `--runs`, the step failed in some runs but not all.
 
    A list of known differences from CI comes with every verdict.
+
+### Flaky failures: `--runs N`
+
+The setup steps run once, then the failing step runs N times in the same container, so repeats are
+cheap. If it fails only some of the time, the verdict is `flaky` ("the step failed in 3 of 10 runs").
+Go's test cache is bypassed for these runs (`GOFLAGS=-count=1`). Otherwise `go test` would replay a cached
+pass and hide the flakiness.
+
+### Debugging inside the container: `--shell`
+
+When the run finishes, `--shell` opens a shell where the failing step ran: same directory, environment,
+toolchains and services. It prints the command that re-runs the step:
+
+```text
+▶ Shell       inside the container at step 5 (Run ./.ci.govet.sh); type exit to finish
+              re-run the step with: bash -e /home/runner/work/_temp/failtrace/step-5.sh
+```
+
+If an earlier step diverged, the shell opens at that step instead. The container is removed when you exit,
+unless you pass `--keep`.
+
+### Sharing the result: `--report FILE`
+
+`--report repro.md` writes a Markdown report to paste into an issue or pull request. It includes the
+verdict, a CI-vs-local table, environment, differences, every step's result, and the output of the failing
+step from both sides. `--report -` prints it instead of the terminal summary. See
+[docs/example-report.md](docs/example-report.md), generated from the stretchr/testify run above with
+`--runs 3`.
 
 **Safety.** `repro` runs the repository's code, including code from a pull request, inside a container on
 your machine. The container sees only the workspace, has no access to your home directory or the Docker
@@ -316,12 +348,10 @@ code you're comfortable executing.
 - [x] **`plan`**: turn the failed job into a local reproduction plan: base image, exact commit, toolchain
   versions, env, steps to replay
 - [x] **`repro`**: run the plan in Docker and compare the result with CI
-- [ ] **Reports**: Markdown report with a verdict (reproduced / not reproduced) and the environment
-  differences between CI and local
-- [ ] **Flaky detection**: `--runs N` to repeat a reproduction
-- [ ] **`--shell`**: drop into the container at the failing step
-- [ ] **`gh` extension**: `gh failtrace <run-url>`
-
+- [x] **Reports**: `--report` writes a Markdown report with the verdict and the differences from CI
+- [x] **Flaky detection**: `--runs N` repeats the failing step and reports `flaky`
+- [x] **`--shell`**: drop into the container at the failing step
+- [ ] **Distribution**: release binaries, Homebrew, and a `gh failtrace` extension
 - [ ] **Replaying common actions:** translate actions such as `golangci-lint-action` into the commands
   they run, so failures in them can be reproduced too
 

@@ -164,3 +164,57 @@ exit 1`
 	}
 	t.Logf("image %s\n%s", res.Image, out.String())
 }
+
+// TestIntegrationRunsAndShell checks flaky detection and the shell session
+// against a real container. The "test" fails on every other attempt.
+func TestIntegrationRunsAndShell(t *testing.T) {
+	eng := &docker.CLI{}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	if err := eng.Available(ctx); err != nil {
+		t.Skip(err)
+	}
+	remotes := t.TempDir()
+	src := filepath.Join(t.TempDir(), "src")
+	env := append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	for _, args := range [][]string{{"init", "-q", "-b", "main", src}, {"-C", src, "commit", "-q", "--allow-empty", "-m", "empty"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	sha, _ := exec.Command("git", "-C", src, "rev-parse", "HEAD").Output()
+	_ = os.MkdirAll(filepath.Join(remotes, "acme"), 0o755)
+	if out, err := exec.Command("git", "clone", "-q", "--bare", src, filepath.Join(remotes, "acme", "widget.git")).CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v %s", err, out)
+	}
+	commit := strings.TrimSpace(string(sha))
+	flaky := `n=$(cat /tmp/attempts 2>/dev/null || echo 0); n=$((n+1)); echo $n > /tmp/attempts
+echo "attempt $n"
+if [ $((n % 2)) -eq 0 ]; then echo '--- FAIL: TestFlaky (0.00s)'; exit 1; fi`
+	p := &plan.Plan{
+		Repository: "acme/widget", Job: plan.JobRef{ID: 3, Name: "integration-runs"}, Verdict: plan.VerdictReady,
+		Image: plan.Image{Ref: "alpine:3.20", Exact: true}, Workspace: "/home/runner/work/widget/widget", Commit: commit,
+		Steps: []plan.Step{
+			{Name: "checkout", Kind: plan.KindCheckout, Checkout: &plan.Checkout{Repository: "acme/widget", Commit: commit}},
+			{Name: "test", Kind: plan.KindRun, Shell: "sh -e {0}", Script: flaky, Env: map[string]string{"STEP_VAR": "from-step"}, Target: true},
+		},
+	}
+	var out, term bytes.Buffer
+	res, err := Run(ctx, Deps{Engine: eng, Git: HostGit{}, Resolver: toolchain.NewResolver()}, p, ciFailure("TestFlaky"),
+		Options{
+			GitBase: "file://" + remotes, WorkDir: t.TempDir(), Out: &out, Runs: 4, Shell: true,
+			ShellIO: ShellIO{In: strings.NewReader("echo \"in:$PWD var:$STEP_VAR\"\nexit\n"), Out: &term},
+		})
+	if err != nil {
+		t.Fatalf("Run: %v\n%s", err, out.String())
+	}
+	if res.Verdict != VerdictFlaky || res.Reasons[0] != "the step failed in 2 of 4 runs" {
+		t.Fatalf("verdict = %s %q\n%s", res.Verdict, res.Reasons, out.String())
+	}
+	if !strings.Contains(term.String(), "in:/home/runner/work/widget/widget var:from-step") {
+		t.Errorf("shell session output = %q", term.String())
+	}
+	t.Logf("output:\n%s\nshell:\n%s", out.String(), term.String())
+}

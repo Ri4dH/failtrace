@@ -26,6 +26,12 @@ func TestInspectRejectsBadInputBeforeNetwork(t *testing.T) {
 		{[]string{"repro", "--toolchain", "node=20;rm -rf /", "https://github.com/acme/widget/actions/runs/1"}, "expected tool=version"},
 		{[]string{"repro", "--platform", "windows/amd64", "https://github.com/acme/widget/actions/runs/1"}, "--platform must be"},
 		{[]string{"repro", "--timeout", "-1s", "https://github.com/acme/widget/actions/runs/1"}, "--timeout must be positive"},
+		{[]string{"repro", "--runs", "0", "https://github.com/acme/widget/actions/runs/1"}, "--runs must be between 1 and 20"},
+		{[]string{"repro", "--runs", "21", "https://github.com/acme/widget/actions/runs/1"}, "--runs must be between 1 and 20"},
+		{[]string{"repro", "--shell", "--json", "https://github.com/acme/widget/actions/runs/1"}, "--shell cannot be combined"},
+		{[]string{"repro", "--json", "--report", "-", "https://github.com/acme/widget/actions/runs/1"}, "pick one"},
+		{[]string{"repro", "--report", "/nonexistent-dir-failtrace/r.md", "https://github.com/acme/widget/actions/runs/1"}, "does not exist"},
+		{[]string{"repro", "--report", ".", "https://github.com/acme/widget/actions/runs/1"}, "is a directory"},
 	}
 	for _, c := range cases {
 		cmd := NewRootCmd("test")

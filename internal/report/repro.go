@@ -19,6 +19,7 @@ func WriteRepro(w io.Writer, res *repro.Result, opts TextOptions) error {
 		repro.VerdictDifferent:     c.yellow("≠ Different failure") + ": the step fails locally, but not the way it failed in CI",
 		repro.VerdictNotReproduced: c.red("✗ Not reproduced") + ": the step that failed in CI passed locally",
 		repro.VerdictDiverged:      c.yellow("⚠ Diverged") + ": an earlier step failed locally, so the failing step never ran",
+		repro.VerdictFlaky:         c.yellow("🎲 Flaky") + ": the step fails only some of the time",
 	}[res.Verdict]
 	fmt.Fprintf(&b, "\n%s\n", c.bold(head))
 	for _, r := range res.Reasons {
@@ -64,6 +65,13 @@ func WriteRepro(w io.Writer, res *repro.Result, opts TextOptions) error {
 		}
 	}
 	fmt.Fprintf(&b, "\n  %-10s %s %s\n", "Steps", strings.Join(parts, " · "), c.dim(fmt.Sprintf("(%.0fs total)", res.Seconds)))
+	if len(res.Attempts) > 1 {
+		marks := make([]string, len(res.Attempts))
+		for i, a := range res.Attempts {
+			marks[i] = map[bool]string{true: c.green("✓"), false: c.red("✗")}[a.ExitCode == 0]
+		}
+		fmt.Fprintf(&b, "  %-10s %s\n", "Runs", strings.Join(marks, " "))
+	}
 	fmt.Fprintf(&b, "  %-10s %s %s\n", "Image", res.Image, c.dim(res.Platform))
 
 	if len(res.Differences) > 0 {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -30,6 +31,9 @@ type reproOptions struct {
 	platform   string
 	timeout    time.Duration
 	workdir    string
+	runs       int
+	shell      bool
+	report     string
 }
 
 var (
@@ -51,7 +55,10 @@ func newReproCmd() *cobra.Command {
 		Example: "  failtrace repro https://github.com/owner/repo/actions/runs/123456789\n" +
 			"  failtrace repro --job 987654321 --keep <run-url>\n" +
 			"  API_TOKEN=... failtrace repro --secret API_TOKEN <run-url>\n" +
-			"  failtrace repro --toolchain node=20.11.1 <run-url>",
+			"  failtrace repro --toolchain node=20.11.1 <run-url>\n" +
+			"  failtrace repro --runs 10 <run-url>              # is it flaky?\n" +
+			"  failtrace repro --shell <run-url>                # debug inside the container\n" +
+			"  failtrace repro --report repro.md <run-url>      # Markdown for an issue or PR",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runRepro(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), args[0], opts)
@@ -67,6 +74,9 @@ func newReproCmd() *cobra.Command {
 	f.StringVar(&opts.platform, "platform", "", "container platform: linux/amd64 or linux/arm64 (default: what CI used)")
 	f.DurationVar(&opts.timeout, "timeout", 45*time.Minute, "give up after this long")
 	f.StringVar(&opts.workdir, "workdir", "", "host directory for workspaces (default: your user cache directory)")
+	f.IntVar(&opts.runs, "runs", 1, fmt.Sprintf("run the failing step this many times to detect flakiness (max %d)", repro.MaxRuns))
+	f.BoolVar(&opts.shell, "shell", false, "open a shell in the container at the failing step when the run finishes")
+	f.StringVar(&opts.report, "report", "", "also write a Markdown report to this file (- for stdout instead of the terminal summary)")
 	return cmd
 }
 
@@ -76,6 +86,18 @@ func (o reproOptions) parse() (secrets, tools map[string]string, err error) {
 	}
 	if o.timeout <= 0 {
 		return nil, nil, fmt.Errorf("--timeout must be positive")
+	}
+	if o.runs < 1 || o.runs > repro.MaxRuns {
+		return nil, nil, fmt.Errorf("--runs must be between 1 and %d", repro.MaxRuns)
+	}
+	if o.shell && (o.json || o.report == "-") {
+		return nil, nil, fmt.Errorf("--shell cannot be combined with --json or --report - (both use stdout)")
+	}
+	if o.json && o.report == "-" {
+		return nil, nil, fmt.Errorf("--json and --report - both write to stdout; pick one")
+	}
+	if err := checkReportPath(o.report); err != nil {
+		return nil, nil, err
 	}
 	secrets = map[string]string{}
 	for _, name := range o.secrets {
@@ -133,7 +155,13 @@ func runRepro(ctx context.Context, out, errOut io.Writer, rawURL string, opts re
 		repro.Options{
 			Host: f.ref.Host, Token: token, Secrets: secrets, Toolchains: tools, Platform: opts.platform,
 			WorkDir: opts.workdir, Keep: opts.keep, Verbose: opts.verbose, Out: progress,
+			Runs: opts.runs, Shell: opts.shell,
+			ShellIO: repro.ShellIO{In: os.Stdin, Out: os.Stdout, Err: os.Stderr, TTY: isTerminal(os.Stdin) && isTerminal(os.Stdout)},
 		})
+	if errors.Is(err, repro.ErrShell) && res != nil {
+		fmt.Fprintf(errOut, "failtrace: %v\n", err) // the reproduction itself finished; still report it
+		err = nil
+	}
 	if err != nil {
 		if errors.Is(err, repro.ErrBlocked) {
 			return fmt.Errorf("%w (run `failtrace plan %s` for details)", err, rawURL)
@@ -143,14 +171,23 @@ func runRepro(ctx context.Context, out, errOut io.Writer, rawURL string, opts re
 		}
 		return err
 	}
+	if err := writeReport(out, opts.report, p, res); err != nil {
+		return err
+	}
 	if opts.json {
 		return writeJSON(out, struct {
 			Plan   *plan.Plan    `json:"plan"`
 			Result *repro.Result `json:"result"`
 		}{p, res})
 	}
+	if opts.report == "-" {
+		return nil
+	}
 	if err := report.WriteRepro(out, res, report.TextOptions{Color: colorEnabled(out)}); err != nil {
 		return err
+	}
+	if opts.report != "" {
+		fmt.Fprintf(out, "\n  Markdown report written to %s\n", opts.report)
 	}
 	if others := len(rep.Jobs) - 1; others > 0 {
 		var ids []string
@@ -160,4 +197,43 @@ func runRepro(ctx context.Context, out, errOut io.Writer, rawURL string, opts re
 		fmt.Fprintf(out, "\n  %d other failed job(s) in this run; reproduce one with --job: %s\n", others, strings.Join(ids, ", "))
 	}
 	return nil
+}
+
+// checkReportPath fails early, before a long reproduction, if the report
+// cannot be written.
+func checkReportPath(p string) error {
+	if p == "" || p == "-" {
+		return nil
+	}
+	if info, err := os.Stat(p); err == nil && info.IsDir() {
+		return fmt.Errorf("--report %s is a directory", p)
+	}
+	dir := filepath.Dir(filepath.Clean(p))
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return fmt.Errorf("--report %s: directory %s does not exist", p, dir)
+	}
+	return nil
+}
+
+func writeReport(stdout io.Writer, p string, pl *plan.Plan, res *repro.Result) error {
+	switch p {
+	case "":
+		return nil
+	case "-":
+		return report.WriteMarkdown(stdout, pl, res)
+	}
+	f, err := os.Create(filepath.Clean(p))
+	if err != nil {
+		return fmt.Errorf("--report: %w", err)
+	}
+	if err := report.WriteMarkdown(f, pl, res); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+func isTerminal(f *os.File) bool {
+	info, err := f.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }

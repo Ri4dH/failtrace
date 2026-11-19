@@ -16,6 +16,7 @@ import (
 )
 
 const (
+	noTestCache      = "-count=1"
 	maskedSecret     = "***"
 	targetLineLimit  = 50000
 	setupOutputLines = 40
@@ -41,12 +42,12 @@ func (r *runner) runSteps(ctx context.Context, res *Result) error {
 		case plan.KindToolchain:
 			sr.Status, sr.Note = StepPassed, "installed in the environment image"
 		case plan.KindRun:
+			r.shellStep, r.shellIndex = s, n
 			if s.Target {
-				r.logf(label, "%s  ← failed in CI", s.Name)
-			} else {
-				r.logf(label, "%s", s.Name)
+				return r.runTarget(ctx, n, s, label, sr, res)
 			}
-			code, output, dur, err := r.runStep(ctx, n, s)
+			r.logf(label, "%s", s.Name)
+			code, output, dur, err := r.runStep(ctx, n, s, r.opts.Verbose)
 			if err != nil {
 				return fmt.Errorf("step %d (%s): %w", n, s.Name, err)
 			}
@@ -55,15 +56,7 @@ func (r *runner) runSteps(ctx context.Context, res *Result) error {
 			if code != 0 {
 				sr.Status = StepFailed
 			}
-			fmt.Fprintf(r.out, "  %s exit code %d (%.1fs)\n", map[bool]string{true: "✓", false: "✗"}[code == 0], code, dur.Seconds())
-
-			if s.Target {
-				res.LocalExitCode = &code
-				res.Local = analyzeLocal(s.Name, output, code)
-				res.Verdict, res.Reasons = compare(res.CI, res.Local, code)
-				res.Steps = append(res.Steps, sr)
-				return nil
-			}
+			r.logExit("", code, dur)
 			if code != 0 {
 				sr.Output = tailLines(output, setupOutputLines)
 				for _, l := range sr.Output {
@@ -90,17 +83,43 @@ func (r *runner) markNotRun(res *Result, from int) {
 	}
 }
 
-func (r *runner) runStep(ctx context.Context, n int, s plan.Step) (int, []string, time.Duration, error) {
-	ext := scriptExt(s.Shell)
-	rel := fmt.Sprintf("failtrace/step-%d%s", n, ext)
+// logExit prints a step's outcome; prefix labels repeated runs ("run 2/5 ").
+func (r *runner) logExit(prefix string, code int, dur time.Duration) {
+	fmt.Fprintf(r.out, "  %s%s exit code %d (%.1fs)\n", prefix, map[bool]string{true: "✓", false: "✗"}[code == 0], code, dur.Seconds())
+}
+
+// scriptPath writes step n's script to the shared temp directory and returns
+// its path inside the container.
+func (r *runner) scriptPath(n int, s plan.Step) (string, error) {
+	rel := fmt.Sprintf("failtrace/step-%d%s", n, scriptExt(s.Shell))
 	hostScript := filepath.Join(r.hostTemp, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(hostScript), 0o755); err != nil {
-		return 0, nil, 0, err
+		return "", err
 	}
 	if err := os.WriteFile(hostScript, []byte(s.Script+"\n"), 0o644); err != nil {
+		return "", err
+	}
+	return path.Join(r.containerRoot, "_temp", rel), nil
+}
+
+// workdir resolves a step's working directory inside the container.
+func (r *runner) workdir(s plan.Step) string {
+	if s.WorkingDirectory == "" {
+		return r.plan.Workspace
+	}
+	if path.IsAbs(s.WorkingDirectory) {
+		return s.WorkingDirectory
+	}
+	return path.Join(r.plan.Workspace, s.WorkingDirectory)
+}
+
+// runStep runs a run step; stream copies its output to the terminal live.
+func (r *runner) runStep(ctx context.Context, n int, s plan.Step, stream bool) (int, []string, time.Duration, error) {
+	script, err := r.scriptPath(n, s)
+	if err != nil {
 		return 0, nil, 0, err
 	}
-	argv, err := shellCommand(s.Shell, path.Join(r.containerRoot, "_temp", rel))
+	argv, err := shellCommand(s.Shell, script)
 	if err != nil {
 		return 0, nil, 0, err
 	}
@@ -108,13 +127,7 @@ func (r *runner) runStep(ctx context.Context, n int, s plan.Step) (int, []string
 	if err != nil {
 		return 0, nil, 0, err
 	}
-	wd := r.plan.Workspace
-	if s.WorkingDirectory != "" {
-		wd = s.WorkingDirectory
-		if !path.IsAbs(wd) {
-			wd = path.Join(r.plan.Workspace, wd)
-		}
-	}
+	wd := r.workdir(s)
 
 	limit := setupOutputLines * 4
 	if s.Target {
@@ -123,7 +136,7 @@ func (r *runner) runStep(ctx context.Context, n int, s plan.Step) (int, []string
 	collector := newLineCollector(limit)
 	var w io.Writer = collector
 	var pw *prefixWriter
-	if s.Target || r.opts.Verbose {
+	if stream {
 		pw = newPrefixWriter(r.out, "    │ ")
 		w = io.MultiWriter(collector, pw)
 	}
@@ -182,6 +195,10 @@ func (r *runner) stepEnv(s plan.Step, n int) (map[string]string, error) {
 		env[fc.env] = path.Join(r.containerRoot, "_temp", "_runner_file_commands", name)
 	}
 	env["PATH"] = strings.Join(append(append([]string{}, r.githubPath...), r.basePath), ":")
+	if s.Target && r.opts.Runs > 1 {
+		// go test replays cached passing results, which would hide flakiness.
+		env["GOFLAGS"] = strings.TrimSpace(env["GOFLAGS"] + " " + noTestCache)
+	}
 	return env, nil
 }
 

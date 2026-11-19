@@ -22,6 +22,10 @@ import (
 // ErrBlocked is returned for plans whose failing step cannot be replayed.
 var ErrBlocked = errors.New("this failure cannot be reproduced yet")
 
+// ErrShell is returned, together with a complete Result, when the
+// reproduction finished but the --shell session could not be opened.
+var ErrShell = errors.New("could not open the shell")
+
 // Options configures a reproduction.
 type Options struct {
 	Host       string            // git host, default github.com
@@ -33,6 +37,9 @@ type Options struct {
 	WorkDir    string            // host directory for workspaces
 	Keep       bool              // keep containers and workspace afterwards
 	Verbose    bool              // stream every step's output, not just the failing one
+	Runs       int               // run the failing step this many times (flaky detection)
+	Shell      bool              // open a shell in the container after the run
+	ShellIO    ShellIO           // the terminal for Shell
 	Out        io.Writer         // progress and step output
 }
 
@@ -72,6 +79,7 @@ type Result struct {
 	Differences   []string        `json:"differences,omitempty"`
 	Container     string          `json:"container,omitempty"` // set when kept
 	Workspace     string          `json:"workspace,omitempty"` // host path, set when kept
+	Attempts      []Attempt       `json:"attempts,omitempty"`
 	Seconds       float64         `json:"seconds"`
 }
 
@@ -94,6 +102,8 @@ type runner struct {
 	basePath   string
 	githubEnv  map[string]string
 	githubPath []string
+	shellStep  plan.Step // the last run step, where --shell opens
+	shellIndex int
 
 	differences []string
 }
@@ -110,6 +120,9 @@ func Run(ctx context.Context, deps Deps, p *plan.Plan, ci *joblog.Failure, opts 
 	}
 	if opts.Out == nil {
 		opts.Out = io.Discard
+	}
+	if opts.Runs > MaxRuns {
+		return nil, fmt.Errorf("at most %d runs are supported", MaxRuns)
 	}
 	if opts.Host == "" {
 		opts.Host = "github.com"
@@ -157,6 +170,11 @@ func Run(ctx context.Context, deps Deps, p *plan.Plan, ci *joblog.Failure, opts 
 	}
 	res.Differences = r.differences
 	res.Seconds = time.Since(start).Seconds()
+	if opts.Shell {
+		if err := r.openShell(ctx); err != nil {
+			return res, fmt.Errorf("%w: %v", ErrShell, err)
+		}
+	}
 	return res, nil
 }
 
@@ -210,6 +228,9 @@ func (r *runner) noteDifferences(ctx context.Context, platform string) {
 		r.differences = append(r.differences,
 			fmt.Sprintf("the image is plain %s with common runner packages; GitHub's runner image has far more preinstalled", p.Image.Ref),
 			"steps run as root; on GitHub's runners they run as the `runner` user with passwordless sudo")
+	}
+	if r.opts.Runs > 1 {
+		r.differences = append(r.differences, "with --runs, Go's test cache is bypassed for the failing step (GOFLAGS="+noTestCache+") so every run really executes the tests")
 	}
 	if platform != p.Image.Platform && p.Image.Platform != "" {
 		r.differences = append(r.differences, fmt.Sprintf("running %s, but CI ran %s", platform, p.Image.Platform))
