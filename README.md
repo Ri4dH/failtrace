@@ -2,17 +2,20 @@
 
 **Stop guessing why CI failed. Reproduce it locally.**
 
+![FailTrace reproducing a failed stretchr/testify CI run in Docker](docs/demo.gif)
+
 Paste a failed GitHub Actions run URL. FailTrace finds the job and step that failed, matches them to the
 workflow file at that exact commit, pulls the failure out of the logs, and tells you what stands between
 you and reproducing it on your machine.
 
 ```bash
-failtrace inspect https://github.com/owner/repo/actions/runs/123456789
+failtrace inspect https://github.com/owner/repo/actions/runs/123456789   # why did it fail?
+failtrace plan    https://github.com/owner/repo/actions/runs/123456789   # how would it be reproduced?
+failtrace repro   https://github.com/owner/repo/actions/runs/123456789   # reproduce it in Docker
 ```
 
-> **Status: early development.** `inspect` (diagnosis) and `plan` (a dry-run reproduction plan) work
-> today. Executing the plan in an isolated container (`repro`) is the next milestone. See the
-> [roadmap](#roadmap).
+> **Status: early development.** All three commands work. `repro` covers Linux jobs whose failing step is
+> a `run:` script. See the [roadmap](#roadmap) and [limitations](#reproducing-a-failure).
 
 ## Why not `act`?
 
@@ -218,29 +221,117 @@ Supported setup actions: `actions/setup-go`, `setup-node`, `setup-python`, `setu
 `ruby/setup-ruby`, `dtolnay/rust-toolchain`, `actions-rust-lang/setup-rust-toolchain`,
 `pnpm/action-setup`, `pnpm/setup`, `astral-sh/setup-uv`, `oven-sh/setup-bun` and `denoland/setup-deno`.
 
+## Reproducing a failure
+
+`failtrace repro` builds the plan and runs it in Docker, then compares the result with CI's failure.
+
+```bash
+failtrace repro <run-url>
+failtrace repro --keep <run-url>                     # keep the container to poke around afterwards
+API_TOKEN=... failtrace repro --secret API_TOKEN <run-url>
+failtrace repro --toolchain node=20.11.1 <run-url>   # fill in or override a toolchain
+failtrace repro --platform linux/arm64 <run-url>     # run natively on Apple silicon (faster, less exact)
+```
+
+You need Docker (Docker Desktop, colima, OrbStack, …) and git.
+
+Real output for a failed [stretchr/testify](https://github.com/stretchr/testify) run, where `go vet` failed
+under Go `oldstable`. FailTrace resolved `oldstable` to the exact Go 1.26.9 build CI used, checked out the
+PR merge commit CI tested, and replayed the steps:
+
+```text
+$ failtrace repro --platform linux/arm64 https://github.com/stretchr/testify/actions/runs/39247781971
+Reproducing stretchr/testify · build (oldstable) · plan ready
+▶ Image       failtrace-env:08414601e6c4aef4 (cached)
+▶ Workspace   stretchr/testify @ 9272105
+▶ [3/5]       Run ./.ci.gogenerate.sh
+  ✓ exit code 0 (17.7s)
+▶ [4/5]       Run ./.ci.gofmt.sh
+  ✓ exit code 0 (7.4s)
+▶ [5/5]       Run ./.ci.govet.sh  ← failed in CI
+    │ assert/assertion_compare_test.go:85:13: non-constant format string in call to (*testing.common).Errorf
+    │ assert/assertion_compare_test.go:94:13: non-constant format string in call to (*testing.common).Errorf
+  ✗ exit code 1 (10.7s)
+
+✓ Reproduced: the step fails locally the same way it failed in CI
+  • the same error: assert/assertion_compare_test.go:<n>:<n>: non-constant format string in call to (*testing.common).Errorf
+
+                 CI                           Local
+  Exit code      1                            1
+  Failure        lint / format check          lint / format check
+
+  Steps      4 passed · 1 failed (39s total)
+  Image      failtrace-env:08414601e6c4aef4 linux/arm64
+
+  Differences from CI
+    - the image is plain ubuntu:24.04 with common runner packages; GitHub's runner image has far more preinstalled
+    - steps run as root; on GitHub's runners they run as the `runner` user with passwordless sudo
+    - running linux/arm64, but CI ran linux/amd64
+```
+
+Without `--platform`, the job runs as `linux/amd64` like CI did. On an Apple silicon Mac that means
+emulation: the same reproduction took about 9 minutes instead of 40 seconds, with the same verdict.
+
+What happens:
+
+1. **Environment image.** The plan's base image, plus the packages every GitHub Ubuntu runner has
+   (git, curl, build tools, python3, jq, sudo, …), plus the toolchains. Go, Node and Python are the same
+   builds `setup-go`, `setup-node` and `setup-python` download, installed under `/opt/hostedtoolcache`
+   where CI keeps them. uv, pnpm and Rust are installed from their releases. The image is tagged by a hash
+   of its contents, so it's only built once per environment.
+2. **Workspace.** The exact commit CI tested is fetched on your machine the way `actions/checkout` does
+   it, with the same fetch depth, and mounted at the same path as on the runner
+   (`/home/runner/work/<repo>/<repo>`, or `/__w/...` for container jobs). If GitHub has since replaced a
+   pull request's merge commit, the merge is recreated locally.
+3. **Services.** Service containers start in the job container's network namespace, so `localhost:5432`
+   and `postgres:5432` both work, and FailTrace waits for their health checks.
+4. **Steps.** Run steps replay in order with the shell, environment and working directory CI used.
+   `$GITHUB_ENV` and `$GITHUB_PATH` carry over between steps. The failing step's output streams live.
+5. **Verdict.**
+   - `reproduced`: the same tests failed, or the same error or exit code.
+   - `different-failure`
+   - `not-reproduced`: the step passed locally.
+   - `diverged`: an earlier step failed locally, so the failing step never ran.
+
+   A list of known differences from CI comes with every verdict.
+
+**Safety.** `repro` runs the repository's code, including code from a pull request, inside a container on
+your machine. The container sees only the workspace, has no access to your home directory or the Docker
+socket, and gets no secrets unless you pass them with `--secret NAME`. The value is read from your
+environment, so it never appears in your shell history or the process list. Only reproduce runs whose
+code you're comfortable executing.
+
+**Limitations.** These are reported instead of silently ignored:
+
+- A failing step that is an action rather than a script can't be replayed (verdict `blocked`).
+- Windows and macOS jobs are only approximated in Linux.
+- Steps run as root, where CI uses the `runner` user.
+- The runner image's many preinstalled tools aren't all present.
+- `linux/amd64` jobs are emulated on ARM machines.
+- Artifacts from other jobs aren't available.
+
 ## Roadmap
 
 - [x] **`inspect`**: diagnose a failed run from its URL
 - [x] **`plan`**: turn the failed job into a local reproduction plan: base image, exact commit, toolchain
   versions, env, steps to replay
-- [ ] **`repro`**: run the plan in an isolated Docker container, then compare exit code and error signature
-  with CI
+- [x] **`repro`**: run the plan in Docker and compare the result with CI
 - [ ] **Reports**: Markdown report with a verdict (reproduced / not reproduced) and the environment
   differences between CI and local
 - [ ] **Flaky detection**: `--runs N` to repeat a reproduction
 - [ ] **`--shell`**: drop into the container at the failing step
 - [ ] **`gh` extension**: `gh failtrace <run-url>`
 
-**Scope for the first reproduction release:** Linux runners, `run:` steps, and Go, Node and Python
-toolchains. macOS and Windows runners, Docker-in-Docker, and secrets are out of scope for now. FailTrace
-will tell you when a failure depends on them.
+- [ ] **Replaying common actions:** translate actions such as `golangci-lint-action` into the commands
+  they run, so failures in them can be reproduced too
 
 ## Development
 
 ```bash
-go test ./...          # unit tests (no network needed)
+go test ./...                                     # unit tests (no network or Docker needed)
 go test -race ./...
 go vet ./...
+go test -tags integration ./internal/repro/       # runs real containers; needs Docker
 ```
 
 Project layout:
@@ -254,6 +345,9 @@ internal/joblog/    job log parsing, failure extraction and classification
 internal/workflow/  workflow YAML parsing, job/step/matrix matching
 internal/inspect/   puts it all together into a report
 internal/plan/      builds reproduction plans (image, commit, toolchains, env, steps)
+internal/toolchain/ resolves toolchains to the builds setup-* actions use
+internal/docker/    runs containers through the docker CLI
+internal/repro/     executes a plan and compares the result with CI
 internal/report/    terminal rendering
 ```
 

@@ -238,7 +238,7 @@ func (b *builder) buildServices() {
 	}
 	names := make([]string, 0, len(job.Services))
 	for _, s := range job.Services {
-		svc := Service{Name: s.Name, Image: b.eval(s.Image), Env: evalMap(b, s.Env)}
+		svc := Service{Name: s.Name, Image: b.eval(s.Image), Env: evalMap(b, s.Env), Options: b.eval(s.Options)}
 		for _, port := range s.Ports {
 			svc.Ports = append(svc.Ports, b.eval(port))
 		}

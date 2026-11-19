@@ -107,10 +107,11 @@ type Toolchain struct {
 
 // Service is a service container the job depends on.
 type Service struct {
-	Name  string            `json:"name"`
-	Image string            `json:"image"`
-	Ports []string          `json:"ports,omitempty"`
-	Env   map[string]string `json:"env,omitempty"`
+	Name    string            `json:"name"`
+	Image   string            `json:"image"`
+	Ports   []string          `json:"ports,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	Options string            `json:"options,omitempty"`
 }
 
 // EnvVar is a job-wide environment variable.

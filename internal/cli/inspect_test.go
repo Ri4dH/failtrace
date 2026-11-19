@@ -19,6 +19,13 @@ func TestInspectRejectsBadInputBeforeNetwork(t *testing.T) {
 		{[]string{"plan"}, "accepts 1 arg"},
 		{[]string{"plan", "https://gitlab.com/acme/widget/-/pipelines/1"}, "not a GitHub Actions run URL"},
 		{[]string{"plan", "--job", "-1", "https://github.com/acme/widget/actions/runs/1"}, "--job must be a positive"},
+		{[]string{"repro", "https://github.com/acme/widget/pull/1"}, "not a GitHub Actions run URL"},
+		{[]string{"repro", "--secret", "TOKEN=abc", "https://github.com/acme/widget/actions/runs/1"}, "expected a variable name"},
+		{[]string{"repro", "--secret", "FAILTRACE_TEST_UNSET_SECRET", "https://github.com/acme/widget/actions/runs/1"}, "is not set in your environment"},
+		{[]string{"repro", "--toolchain", "node", "https://github.com/acme/widget/actions/runs/1"}, "expected tool=version"},
+		{[]string{"repro", "--toolchain", "node=20;rm -rf /", "https://github.com/acme/widget/actions/runs/1"}, "expected tool=version"},
+		{[]string{"repro", "--platform", "windows/amd64", "https://github.com/acme/widget/actions/runs/1"}, "--platform must be"},
+		{[]string{"repro", "--timeout", "-1s", "https://github.com/acme/widget/actions/runs/1"}, "--timeout must be positive"},
 	}
 	for _, c := range cases {
 		cmd := NewRootCmd("test")

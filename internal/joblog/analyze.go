@@ -34,6 +34,7 @@ type Failure struct {
 	FailedTests     []string          `json:"failed_tests,omitempty"`
 	Excerpt         []string          `json:"excerpt"`
 	ExcerptAnchored bool              `json:"excerpt_anchored,omitempty"` // centred on the first error line rather than the tail
+	Signature       string            `json:"signature,omitempty"`        // first error line, normalised for comparison
 	Category        Category          `json:"category"`
 }
 
@@ -62,12 +63,13 @@ var anchorRe = regexp.MustCompile(strings.Join([]string{
 	`^FAILED `,
 	`^diff --git `,
 	`error TS\d+:`,
+	`^\S+\.\w+:\d+:\d+: `, // file:line:col: diagnostics (go vet, gcc, rustc, ...)
 }, "|"))
 
 var (
 	timeoutRe = regexp.MustCompile(`exceeded the maximum execution time|The operation was canceled`)
 	oomRe     = regexp.MustCompile(`(?i)heap out of memory|out of memory|OOMKilled|^Killed$|signal: killed`)
-	lintCmdRe = regexp.MustCompile(`(?i)\b(lint|golangci-lint|eslint|ruff|flake8|pylint|prettier|gofmt|black|rubocop|clippy|fmt)\b`)
+	lintCmdRe = regexp.MustCompile(`(?i)\b(lint|golangci-lint|eslint|ruff|flake8|pylint|prettier|gofmt|black|rubocop|clippy|fmt|go vet|govet|staticcheck|mypy)\b`)
 	driftRe   = regexp.MustCompile(`^diff --git `)
 	depRe     = regexp.MustCompile(`npm ERR! code E|ERESOLVE|ERR_PNPM_|No matching distribution found|Could not find a version that satisfies|ResolutionImpossible|missing go\.sum entry|Could not resolve dependencies|failed to select a version|unable to resolve dependency`)
 	buildRe   = regexp.MustCompile(`error TS\d+:|error\[E\d+\]|\.go:\d+:\d+: |\[build failed\]|SyntaxError:|cannot find symbol|COMPILATION ERROR|error: could not compile|Build FAILED`)
@@ -94,6 +96,7 @@ func Analyze(s *Section, excerptLines int) *Failure {
 	}
 	f.FailedTests = findFailedTests(s.Body)
 	f.Excerpt, f.ExcerptAnchored = excerpt(s.Body, excerptLines)
+	f.Signature = signature(s.Body, f.Errors)
 	f.Category = classify(f, s)
 	return f
 }
@@ -159,6 +162,31 @@ func excerpt(body []string, n int) ([]string, bool) {
 		start = 0
 	}
 	return lines[start : start+n], true
+}
+
+var (
+	sigHexRe   = regexp.MustCompile(`\b[0-9a-f]{7,64}\b`)
+	sigNumRe   = regexp.MustCompile(`\d+(\.\d+)?`)
+	sigSpaceRe = regexp.MustCompile(`\s+`)
+)
+
+// signature is the first error line with volatile parts (durations, line
+// numbers, hashes, timings) replaced, so CI and local runs can be compared.
+func signature(body, errors []string) string {
+	line := ""
+	for _, l := range body {
+		if anchorRe.MatchString(l) {
+			line = l
+			break
+		}
+	}
+	if line == "" && len(errors) > 0 {
+		line = errors[0]
+	}
+	line = strings.TrimPrefix(line, errorPrefix)
+	line = sigHexRe.ReplaceAllString(line, "<hex>")
+	line = sigNumRe.ReplaceAllString(line, "<n>")
+	return strings.TrimSpace(sigSpaceRe.ReplaceAllString(line, " "))
 }
 
 func classify(f *Failure, s *Section) Category {

@@ -40,10 +40,11 @@ type Job struct {
 
 // Service is a service container attached to a job.
 type Service struct {
-	Name  string            `json:"name"`
-	Image string            `json:"image,omitempty"`
-	Ports []string          `json:"ports,omitempty"`
-	Env   map[string]string `json:"env,omitempty"`
+	Name    string            `json:"name"`
+	Image   string            `json:"image,omitempty"`
+	Ports   []string          `json:"ports,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	Options string            `json:"options,omitempty"` // extra `docker create` flags, e.g. health checks
 }
 
 // Matrix is a job's strategy.matrix. Keys preserve definition order, which is
@@ -260,6 +261,9 @@ func parseServices(n *yaml.Node) []Service {
 		svc := Service{Name: n.Content[i].Value}
 		if img := mappingValue(def, "image"); img != nil {
 			svc.Image = img.Value
+		}
+		if opts := mappingValue(def, "options"); opts != nil {
+			svc.Options = opts.Value
 		}
 		if ports := mappingValue(def, "ports"); ports != nil {
 			svc.Ports = scalarList(ports)
