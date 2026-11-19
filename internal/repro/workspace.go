@@ -55,20 +55,12 @@ func (r *runner) checkout(ctx context.Context, co *plan.Checkout) error {
 			return err
 		}
 	}
-	fetch := append([]string{"-C", dest, "fetch", "-q", "--no-tags", "--prune"}, depth...)
-	_, err := r.deps.Git.Run(ctx, "", env, append(fetch, "origin", target)...)
-	switch {
-	case err == nil:
-		if _, err := r.deps.Git.Run(ctx, "", env, "-C", dest, "checkout", "-q", "--force", "--detach", "FETCH_HEAD"); err != nil {
+	if r.replacesCheckout(co) {
+		if err := r.checkoutSource(ctx, dest, depth); err != nil {
 			return err
 		}
-	case co.MergeHead != "" && co.MergeBase != "":
-		// GitHub replaces PR merge commits when the base branch moves; rebuild it.
-		if mergeErr := r.recreateMerge(ctx, dest, env, co); mergeErr != nil {
-			return fmt.Errorf("fetch %s@%s: %v; recreating the merge also failed: %w", co.Repository, short(target), err, mergeErr)
-		}
-	default:
-		return fmt.Errorf("fetch %s@%s: %w", co.Repository, short(target), err)
+	} else if err := r.fetchCommit(ctx, dest, env, co, target, depth); err != nil {
+		return err
 	}
 
 	switch co.Submodules {
@@ -87,6 +79,24 @@ func (r *runner) checkout(ctx context.Context, co *plan.Checkout) error {
 		}
 	}
 	return nil
+}
+
+// fetchCommit fetches the commit CI tested and checks it out.
+func (r *runner) fetchCommit(ctx context.Context, dest string, env map[string]string, co *plan.Checkout, target string, depth []string) error {
+	fetch := append([]string{"-C", dest, "fetch", "-q", "--no-tags", "--prune"}, depth...)
+	_, err := r.deps.Git.Run(ctx, "", env, append(fetch, "origin", target)...)
+	switch {
+	case err == nil:
+		_, err = r.deps.Git.Run(ctx, "", env, "-C", dest, "checkout", "-q", "--force", "--detach", "FETCH_HEAD")
+		return err
+	case co.MergeHead != "" && co.MergeBase != "":
+		// GitHub replaces PR merge commits when the base branch moves; rebuild it.
+		if mergeErr := r.recreateMerge(ctx, dest, env, co); mergeErr != nil {
+			return fmt.Errorf("fetch %s@%s: %v; recreating the merge also failed: %w", co.Repository, short(target), err, mergeErr)
+		}
+		return nil
+	}
+	return fmt.Errorf("fetch %s@%s: %w", co.Repository, short(target), err)
 }
 
 func (r *runner) recreateMerge(ctx context.Context, dest string, env map[string]string, co *plan.Checkout) error {

@@ -21,6 +21,17 @@ func WriteRepro(w io.Writer, res *repro.Result, opts TextOptions) error {
 		repro.VerdictDiverged:      c.yellow("⚠ Diverged") + ": an earlier step failed locally, so the failing step never ran",
 		repro.VerdictFlaky:         c.yellow("🎲 Flaky") + ": the step fails only some of the time",
 	}[res.Verdict]
+	if res.Source != nil {
+		// Testing local changes: passing is the good outcome.
+		switch res.Verdict {
+		case repro.VerdictNotReproduced:
+			head = c.green("✓ Passes") + ": the step that failed in CI passes with your working tree"
+		case repro.VerdictReproduced:
+			head = c.red("✗ Still fails") + ": the step fails with your working tree the way it failed in CI"
+		case repro.VerdictDifferent:
+			head = c.yellow("≠ Fails differently") + ": the step fails with your working tree, but not the way it failed in CI"
+		}
+	}
 	fmt.Fprintf(&b, "\n%s\n", c.bold(head))
 	for _, r := range res.Reasons {
 		fmt.Fprintf(&b, "  • %s\n", r)
@@ -80,7 +91,7 @@ func WriteRepro(w io.Writer, res *repro.Result, opts TextOptions) error {
 			fmt.Fprintf(&b, "    %s %s\n", c.yellow("-"), shortenRefs(d))
 		}
 	}
-	if res.Verdict == repro.VerdictNotReproduced {
+	if res.Verdict == repro.VerdictNotReproduced && res.Source == nil {
 		fmt.Fprintf(&b, "\n  %s\n", c.dim("If none of the differences explain it, the failure may be flaky or depend on state from other CI jobs."))
 	}
 	if res.Container != "" {

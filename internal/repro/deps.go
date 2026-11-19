@@ -48,7 +48,8 @@ type Deps struct {
 // HostGit runs the git binary.
 type HostGit struct{}
 
-// Run executes git with args in dir. env is added to the inherited environment.
+// Run executes git with args in dir and returns its standard output. env is
+// added to the inherited environment.
 func (HostGit) Run(ctx context.Context, dir string, env map[string]string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
@@ -56,14 +57,27 @@ func (HostGit) Run(ctx context.Context, dir string, env map[string]string, args 
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
-	var out bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &out
+	var out, errOut bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errOut
 	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(out.String())
+		msg := strings.TrimSpace(errOut.String() + "\n" + out.String())
 		if len(msg) > 600 {
 			msg = "…" + msg[len(msg)-600:]
 		}
-		return "", fmt.Errorf("git %s: %v: %s", args[0], err, msg)
+		return "", fmt.Errorf("git %s: %v: %s", subcommand(args), err, msg)
 	}
 	return out.String(), nil
+}
+
+// subcommand finds the git subcommand in args, skipping -C dir and -c k=v.
+func subcommand(args []string) string {
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "-C" || a == "-c":
+			i++
+		case !strings.HasPrefix(a, "-"):
+			return a
+		}
+	}
+	return strings.Join(args, " ")
 }

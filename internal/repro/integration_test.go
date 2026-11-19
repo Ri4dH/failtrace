@@ -218,3 +218,46 @@ if [ $((n % 2)) -eq 0 ]; then echo '--- FAIL: TestFlaky (0.00s)'; exit 1; fi`
 	}
 	t.Logf("output:\n%s\nshell:\n%s", out.String(), term.String())
 }
+
+// TestIntegrationSource checks a local fix: the committed code fails like CI,
+// and the same step passes once the working tree has an uncommitted fix.
+func TestIntegrationSource(t *testing.T) {
+	eng := &docker.CLI{}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	if err := eng.Available(ctx); err != nil {
+		t.Skip(err)
+	}
+	src := t.TempDir()
+	gitT(t, src, "init", "-q")
+	writeT(t, filepath.Join(src, "check.sh"), "echo '--- FAIL: TestWidget (0.00s)'; exit 1\n", 0o755)
+	gitT(t, src, "add", "-A")
+	gitT(t, src, "commit", "-q", "-m", "broken")
+	commit := gitT(t, src, "rev-parse", "HEAD")
+	p := &plan.Plan{
+		Repository: "acme/widget", Job: plan.JobRef{ID: 4, Name: "integration-source"}, Verdict: plan.VerdictReady,
+		Image: plan.Image{Ref: "alpine:3.20", Exact: true}, Workspace: "/home/runner/work/widget/widget", Commit: commit,
+		Steps: []plan.Step{
+			{Name: "checkout", Kind: plan.KindCheckout, Checkout: &plan.Checkout{Repository: "acme/widget", Commit: commit}},
+			{Name: "test", Kind: plan.KindRun, Shell: "sh -e {0}", Script: "./check.sh", Target: true},
+		},
+	}
+	repro := func() *Result {
+		var out bytes.Buffer
+		res, err := Run(ctx, Deps{Engine: eng, Git: HostGit{}, Resolver: toolchain.NewResolver()}, p, ciFailure("TestWidget"),
+			Options{GitBase: "file:///nonexistent", Source: src, WorkDir: t.TempDir(), Out: &out})
+		if err != nil {
+			t.Fatalf("Run: %v\n%s", err, out.String())
+		}
+		return res
+	}
+
+	if res := repro(); res.Verdict != VerdictReproduced {
+		t.Fatalf("committed code: verdict = %s %q", res.Verdict, res.Reasons)
+	}
+	writeT(t, filepath.Join(src, "check.sh"), "echo ok\n", 0o755) // the fix, not committed
+	res := repro()
+	if res.Verdict != VerdictNotReproduced || res.Source.Changed != 1 {
+		t.Fatalf("with the fix: verdict = %s %q, source %+v", res.Verdict, res.Reasons, res.Source)
+	}
+}

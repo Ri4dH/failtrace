@@ -3,8 +3,11 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/Ri4dH/failtrace/internal/repro"
 )
 
 func TestInspectRejectsBadInputBeforeNetwork(t *testing.T) {
@@ -32,6 +35,8 @@ func TestInspectRejectsBadInputBeforeNetwork(t *testing.T) {
 		{[]string{"repro", "--json", "--report", "-", "https://github.com/acme/widget/actions/runs/1"}, "pick one"},
 		{[]string{"repro", "--report", "/nonexistent-dir-failtrace/r.md", "https://github.com/acme/widget/actions/runs/1"}, "does not exist"},
 		{[]string{"repro", "--report", ".", "https://github.com/acme/widget/actions/runs/1"}, "is a directory"},
+		{[]string{"repro", "--source", "/nonexistent-dir-failtrace", "https://github.com/acme/widget/actions/runs/1"}, "is not a directory"},
+		{[]string{"repro", "--source", "inspect_test.go", "https://github.com/acme/widget/actions/runs/1"}, "is not a directory"},
 	}
 	for _, c := range cases {
 		cmd := NewRootCmd(BuildInfo{Version: "test"})
@@ -63,5 +68,37 @@ func TestVersion(t *testing.T) {
 	_ = cmd.Execute()
 	if !strings.HasPrefix(out.String(), "failtrace v1.2.3") {
 		t.Errorf("--version = %q", out.String())
+	}
+}
+
+func TestVerdictExitCodes(t *testing.T) {
+	want := map[repro.Verdict]int{
+		repro.VerdictNotReproduced: 0, repro.VerdictReproduced: 2, repro.VerdictDifferent: 3,
+		repro.VerdictDiverged: 4, repro.VerdictFlaky: 5,
+	}
+	seen := map[int]bool{}
+	for v, code := range want {
+		var stderr bytes.Buffer
+		if got := exitCode(verdictExit(v), &stderr); got != code || stderr.Len() != 0 {
+			t.Errorf("%s: exit %d (stderr %q), want %d and nothing printed", v, got, stderr.String(), code)
+		}
+		if seen[code] {
+			t.Errorf("exit code %d is used twice", code)
+		}
+		seen[code] = true
+	}
+	if len(verdictExitCodes) != len(want) {
+		t.Errorf("verdictExitCodes has %d entries, want %d", len(verdictExitCodes), len(want))
+	}
+	if err := verdictExit("bogus"); err == nil {
+		t.Error("an unknown verdict should be an error")
+	}
+
+	var stderr bytes.Buffer
+	if got := exitCode(errors.New("boom"), &stderr); got != 1 || stderr.String() != "failtrace: boom\n" {
+		t.Errorf("error: exit %d, stderr %q", got, stderr.String())
+	}
+	if got := exitCode(nil, &stderr); got != 0 {
+		t.Errorf("success: exit %d", got)
 	}
 }

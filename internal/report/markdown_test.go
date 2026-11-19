@@ -92,3 +92,27 @@ func TestWriteMarkdownWithoutDetails(t *testing.T) {
 		t.Errorf("markdown:\n%s", b.String())
 	}
 }
+
+func TestWriteMarkdownSource(t *testing.T) {
+	res := &repro.Result{
+		Verdict: repro.VerdictNotReproduced,
+		Source:  &repro.Source{Dir: "/home/me/widget", Head: "abcdef0123456789", Changed: 2},
+	}
+	var b strings.Builder
+	if err := WriteMarkdown(&b, samplePlan(), res); err != nil {
+		t.Fatal(err)
+	}
+	md := b.String()
+	for _, want := range []string{
+		"## FailTrace: ✅ Passes with local changes",
+		"passes with a local working tree",
+		"- **Code:** a local working tree at `abcdef0` plus 2 changed file(s), not the commit above",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("markdown missing %q\n---\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "/home/me") {
+		t.Errorf("the report should not contain local paths:\n%s", md)
+	}
+}

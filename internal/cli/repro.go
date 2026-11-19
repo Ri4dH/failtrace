@@ -34,6 +34,28 @@ type reproOptions struct {
 	runs       int
 	shell      bool
 	report     string
+	source     string
+}
+
+// Exit codes of repro mirror the failing step: 0 when it passed locally, and
+// one code per way it failed. 1 means FailTrace itself failed.
+var verdictExitCodes = map[repro.Verdict]int{
+	repro.VerdictNotReproduced: 0,
+	repro.VerdictReproduced:    2,
+	repro.VerdictDifferent:     3,
+	repro.VerdictDiverged:      4,
+	repro.VerdictFlaky:         5,
+}
+
+func verdictExit(v repro.Verdict) error {
+	code, ok := verdictExitCodes[v]
+	if !ok {
+		return fmt.Errorf("unknown verdict %q", v)
+	}
+	if code == 0 {
+		return nil
+	}
+	return exitStatus(code)
 }
 
 var (
@@ -51,14 +73,20 @@ func newReproCmd() *cobra.Command {
 			"toolchains CI used, the exact commit CI tested, service containers, and the\n" +
 			"steps up to the one that failed. Then it compares the local result with CI's.\n\n" +
 			"The steps run code from the repository (and from the pull request, if any)\n" +
-			"inside a container. Only secrets you pass with --secret are made available.",
+			"inside a container. Only secrets you pass with --secret are made available.\n\n" +
+			"With --source DIR, the job's checkout of the repository is replaced by your\n" +
+			"local working tree: its HEAD plus uncommitted and untracked files (files your\n" +
+			".gitignore excludes are left out). Use it to check a fix before pushing it.\n\n" +
+			"Exit status: 0 if the failing step passed locally (not-reproduced),\n" +
+			"2 reproduced, 3 different-failure, 4 diverged, 5 flaky, 1 on errors.",
 		Example: "  failtrace repro https://github.com/owner/repo/actions/runs/123456789\n" +
 			"  failtrace repro --job 987654321 --keep <run-url>\n" +
 			"  API_TOKEN=... failtrace repro --secret API_TOKEN <run-url>\n" +
 			"  failtrace repro --toolchain node=20.11.1 <run-url>\n" +
 			"  failtrace repro --runs 10 <run-url>              # is it flaky?\n" +
 			"  failtrace repro --shell <run-url>                # debug inside the container\n" +
-			"  failtrace repro --report repro.md <run-url>      # Markdown for an issue or PR",
+			"  failtrace repro --report repro.md <run-url>      # Markdown for an issue or PR\n" +
+			"  failtrace repro --source . <run-url>             # does my local fix work?",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runRepro(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), args[0], opts)
@@ -77,6 +105,7 @@ func newReproCmd() *cobra.Command {
 	f.IntVar(&opts.runs, "runs", 1, fmt.Sprintf("run the failing step this many times to detect flakiness (max %d)", repro.MaxRuns))
 	f.BoolVar(&opts.shell, "shell", false, "open a shell in the container at the failing step when the run finishes")
 	f.StringVar(&opts.report, "report", "", "also write a Markdown report to this file (- for stdout instead of the terminal summary)")
+	f.StringVar(&opts.source, "source", "", "use the code in this local git working tree instead of the commit CI tested")
 	return cmd
 }
 
@@ -98,6 +127,11 @@ func (o reproOptions) parse() (secrets, tools map[string]string, err error) {
 	}
 	if err := checkReportPath(o.report); err != nil {
 		return nil, nil, err
+	}
+	if o.source != "" {
+		if info, err := os.Stat(o.source); err != nil || !info.IsDir() {
+			return nil, nil, fmt.Errorf("--source %s is not a directory", o.source)
+		}
 	}
 	secrets = map[string]string{}
 	for _, name := range o.secrets {
@@ -125,6 +159,11 @@ func runRepro(ctx context.Context, out, errOut io.Writer, rawURL string, opts re
 	secrets, tools, err := opts.parse()
 	if err != nil {
 		return err
+	}
+	if opts.source != "" {
+		if opts.source, err = filepath.Abs(opts.source); err != nil {
+			return err
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, opts.timeout)
 	defer cancel()
@@ -155,7 +194,7 @@ func runRepro(ctx context.Context, out, errOut io.Writer, rawURL string, opts re
 		repro.Options{
 			Host: f.ref.Host, Token: token, Secrets: secrets, Toolchains: tools, Platform: opts.platform,
 			WorkDir: opts.workdir, Keep: opts.keep, Verbose: opts.verbose, Out: progress,
-			Runs: opts.runs, Shell: opts.shell,
+			Runs: opts.runs, Shell: opts.shell, Source: opts.source,
 			ShellIO: repro.ShellIO{In: os.Stdin, Out: os.Stdout, Err: os.Stderr, TTY: isTerminal(os.Stdin) && isTerminal(os.Stdout)},
 		})
 	if errors.Is(err, repro.ErrShell) && res != nil {
@@ -175,13 +214,16 @@ func runRepro(ctx context.Context, out, errOut io.Writer, rawURL string, opts re
 		return err
 	}
 	if opts.json {
-		return writeJSON(out, struct {
+		if err := writeJSON(out, struct {
 			Plan   *plan.Plan    `json:"plan"`
 			Result *repro.Result `json:"result"`
-		}{p, res})
+		}{p, res}); err != nil {
+			return err
+		}
+		return verdictExit(res.Verdict)
 	}
 	if opts.report == "-" {
-		return nil
+		return verdictExit(res.Verdict)
 	}
 	if err := report.WriteRepro(out, res, report.TextOptions{Color: colorEnabled(out)}); err != nil {
 		return err
@@ -196,7 +238,7 @@ func runRepro(ctx context.Context, out, errOut io.Writer, rawURL string, opts re
 		}
 		fmt.Fprintf(out, "\n  %d other failed job(s) in this run; reproduce one with --job: %s\n", others, strings.Join(ids, ", "))
 	}
-	return nil
+	return verdictExit(res.Verdict)
 }
 
 // checkReportPath fails early, before a long reproduction, if the report

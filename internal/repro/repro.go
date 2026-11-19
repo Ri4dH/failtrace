@@ -39,6 +39,7 @@ type Options struct {
 	Verbose    bool              // stream every step's output, not just the failing one
 	Runs       int               // run the failing step this many times (flaky detection)
 	Shell      bool              // open a shell in the container after the run
+	Source     string            // use this local working tree instead of the commit CI tested
 	ShellIO    ShellIO           // the terminal for Shell
 	Out        io.Writer         // progress and step output
 }
@@ -80,6 +81,7 @@ type Result struct {
 	Container     string          `json:"container,omitempty"` // set when kept
 	Workspace     string          `json:"workspace,omitempty"` // host path, set when kept
 	Attempts      []Attempt       `json:"attempts,omitempty"`
+	Source        *Source         `json:"source,omitempty"` // set with Options.Source
 	Seconds       float64         `json:"seconds"`
 }
 
@@ -104,6 +106,8 @@ type runner struct {
 	githubPath []string
 	shellStep  plan.Step // the last run step, where --shell opens
 	shellIndex int
+
+	source *Source // the working tree that replaced the checkout, with Options.Source
 
 	differences []string
 }
@@ -158,10 +162,16 @@ func Run(ctx context.Context, deps Deps, p *plan.Plan, ci *joblog.Failure, opts 
 		return nil, err
 	}
 	defer r.cleanup(ctx, res)
-	r.logf("Workspace", "%s @ %s", p.Repository, short(p.Commit))
+	if opts.Source == "" {
+		r.logf("Workspace", "%s @ %s", p.Repository, short(p.Commit))
+	}
 	if err := r.checkoutAll(ctx); err != nil {
 		return nil, err
 	}
+	if opts.Source != "" && r.source == nil {
+		return nil, fmt.Errorf("the job does not check out %s, so there is no checkout for --source to replace", p.Repository)
+	}
+	res.Source = r.source
 	if err := r.startContainers(ctx, img.Tag, platform); err != nil {
 		return nil, err
 	}

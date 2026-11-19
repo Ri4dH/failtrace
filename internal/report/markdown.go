@@ -33,7 +33,16 @@ func WriteMarkdown(w io.Writer, p *plan.Plan, res *repro.Result) error {
 	var b strings.Builder
 	target := targetStep(p)
 
-	fmt.Fprintf(&b, "## FailTrace: %s\n\n", verdictMarkdown[res.Verdict])
+	title, sentence := verdictMarkdown[res.Verdict], verdictSentence[res.Verdict]
+	if res.Source != nil {
+		switch res.Verdict {
+		case repro.VerdictNotReproduced:
+			title, sentence = "✅ Passes with local changes", "passes with a local working tree"
+		case repro.VerdictReproduced:
+			title, sentence = "❌ Still fails with local changes", "still fails with a local working tree, the way it failed in CI"
+		}
+	}
+	fmt.Fprintf(&b, "## FailTrace: %s\n\n", title)
 	job := mdCode(p.Job.Name)
 	if p.Job.URL != "" {
 		job = fmt.Sprintf("[%s](%s)", job, p.Job.URL)
@@ -43,7 +52,7 @@ func WriteMarkdown(w io.Writer, p *plan.Plan, res *repro.Result) error {
 		link = fmt.Sprintf(" ([CI run](%s))", p.RunURL)
 	}
 	fmt.Fprintf(&b, "The step **%s** of job %s in `%s` %s%s.\n\n",
-		mdText(target), job, p.Repository, verdictSentence[res.Verdict], link)
+		mdText(target), job, p.Repository, sentence, link)
 	for _, r := range res.Reasons {
 		fmt.Fprintf(&b, "- %s\n", mdText(r))
 	}
@@ -71,6 +80,9 @@ func WriteMarkdown(w io.Writer, p *plan.Plan, res *repro.Result) error {
 	}
 	fmt.Fprintf(&b, "- **Image:** %s on `%s` (CI: `%s`)\n", img, res.Platform, p.Image.Platform)
 	fmt.Fprintf(&b, "- **Commit:** `%s`%s\n", short(p.Commit), mergeNote(p))
+	if src := res.Source; src != nil {
+		fmt.Fprintf(&b, "- **Code:** a local working tree at `%s` plus %d changed file(s), not the commit above\n", short(src.Head), src.Changed)
+	}
 	if len(p.Toolchains) > 0 {
 		var tcs []string
 		for _, t := range p.Toolchains {

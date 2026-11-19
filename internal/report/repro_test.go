@@ -58,3 +58,21 @@ func TestWriteRepro(t *testing.T) {
 		t.Errorf("diverged output:\n%s", b.String())
 	}
 }
+
+func TestWriteReproSource(t *testing.T) {
+	res := &repro.Result{
+		Verdict: repro.VerdictNotReproduced, Reasons: []string{"the step that failed in CI passed locally"},
+		Source: &repro.Source{Dir: "/home/me/widget", Head: "abcdef0123456789", Changed: 2},
+	}
+	var b strings.Builder
+	_ = WriteRepro(&b, res, TextOptions{})
+	if !strings.Contains(b.String(), "✓ Passes: the step that failed in CI passes with your working tree") || strings.Contains(b.String(), "may be flaky") {
+		t.Errorf("passing output:\n%s", b.String())
+	}
+	res.Verdict = repro.VerdictReproduced
+	b.Reset()
+	_ = WriteRepro(&b, res, TextOptions{})
+	if !strings.Contains(b.String(), "✗ Still fails") {
+		t.Errorf("still failing output:\n%s", b.String())
+	}
+}

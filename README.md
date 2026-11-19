@@ -344,6 +344,44 @@ step from both sides. `--report -` prints it instead of the terminal summary. Se
 [docs/example-report.md](docs/example-report.md), generated from the stretchr/testify run above with
 `--runs 3`.
 
+### Testing a fix: `--source DIR`
+
+`--source .` swaps the commit CI tested for your local working tree, so you can check a fix on the same
+CI step before pushing it. FailTrace copies the tree's `HEAD` plus your uncommitted and untracked files
+into the workspace as one extra commit, so the checkout is clean the way it is in CI. Files your
+`.gitignore` excludes, such as `.env` or `node_modules`, are left out. Your working tree is only read.
+Setup steps, toolchains and services stay as CI had them.
+
+From the testify run above, after fixing the two `go vet` errors without committing:
+
+```text
+$ failtrace repro --source . https://github.com/stretchr/testify/actions/runs/39247781971
+▶ Workspace   stretchr/testify from ~/src/testify (9272105, plus 1 changed file(s))
+...
+✓ Passes: the step that failed in CI passes with your working tree
+```
+
+### Exit status
+
+`repro`'s exit status matches the failing step, so scripts and coding agents can loop on it without
+parsing the output:
+
+| Exit | Verdict |
+|------|---------|
+| 0 | `not-reproduced`: the step passed locally (with `--source`: your fix works) |
+| 2 | `reproduced` |
+| 3 | `different-failure` |
+| 4 | `diverged` |
+| 5 | `flaky` |
+| 1 | FailTrace itself failed: bad arguments, Docker unavailable, a `blocked` plan |
+
+For details, `--json` prints the plan and the result: verdict, reasons, the CI and local failures, and
+every step's outcome.
+
+```bash
+failtrace repro --source . --json <run-url> 2>/dev/null | jq '.result | {verdict, reasons}'
+```
+
 **Safety.** `repro` runs the repository's code, including code from a pull request, inside a container on
 your machine. The container sees only the workspace, has no access to your home directory or the Docker
 socket, and gets no secrets unless you pass them with `--secret NAME`. The value is read from your
@@ -368,6 +406,8 @@ code you're comfortable executing.
 - [x] **Reports**: `--report` writes a Markdown report with the verdict and the differences from CI
 - [x] **Flaky detection**: `--runs N` repeats the failing step and reports `flaky`
 - [x] **`--shell`**: drop into the container at the failing step
+- [x] **`--source`**: test a local fix against the failing step before pushing
+- [x] **Exit codes per verdict**, for scripts and coding agents
 - [x] **Releases**: prebuilt binaries for macOS, Linux and Windows, and a checksum-verifying install script
 - [ ] **Homebrew and `gh` extension**: `brew install` and `gh failtrace <run-url>`
 - [ ] **Replaying common actions:** translate actions such as `golangci-lint-action` into the commands
