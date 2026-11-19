@@ -117,7 +117,7 @@ func Run(ctx context.Context, api API, ref runurl.Ref, opts Options) (*Report, e
 	if attempt == 0 {
 		attempt = run.RunAttempt
 	}
-	rep := &Report{Run: RunInfo{
+	rep := &Report{Jobs: []JobReport{}, Run: RunInfo{
 		Repository: ref.Repository(), ID: run.ID, Attempt: attempt, Workflow: run.Name,
 		WorkflowPath: workflowPath(run.Path), Title: run.DisplayTitle, Event: run.Event,
 		Branch: run.HeadBranch, SHA: run.HeadSHA, Status: run.Status, Conclusion: run.Conclusion,

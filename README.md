@@ -118,15 +118,35 @@ failtrace inspect https://github.com/owner/repo/actions/runs/123456789/attempts/
 # Show more log context, or emit JSON for scripts and other tools
 failtrace inspect -n 60 <run-url>
 failtrace inspect --json <run-url> | jq '.failed_jobs[0].failure'
+
+# A compact summary to paste into a coding assistant
+failtrace inspect --llm <run-url> | pbcopy
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--json` | off | Print the report as JSON |
+| `--llm` | off | Print a compact plain-text summary for a language model's prompt |
 | `-n, --lines` | 25 | Log lines to show from the failed step |
 | `--job` | all failed | Inspect only this job ID |
 
 Colour output turns off automatically when stdout is not a terminal, or when `NO_COLOR` is set.
+
+### For coding assistants: `--llm`
+
+`--llm` prints only what a model needs to fix the failure: the failing step, its command and relevant
+env, the exit code, errors, failing tests, and the log from the first error. It leaves out step lists,
+runner metadata, the variables setup actions export, and `go test -v` progress lines and progress bars.
+Error lines appear once, and matrix jobs that failed the same way collapse into one line.
+
+Measured on real failed runs, compared with the raw logs of their failed jobs:
+
+| Run | Raw logs | `--llm` |
+|-----|----------|---------|
+| stretchr/testify (`go vet` + Go version) | 38 KB | 1.2 KB |
+| pytest-dev/pytest (pytest failure) | 125 KB | 3.7 KB |
+| vitejs/vite (two Vitest failures) | 306 KB | 3.9 KB |
+| prometheus/prometheus (Go test failure) | 8.3 MB | 1.8 KB |
 
 ### Authentication
 

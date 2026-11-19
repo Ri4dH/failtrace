@@ -41,6 +41,7 @@ func TestFailedTestPatterns(t *testing.T) {
 		{"test parser::tests::empty ... FAILED", "parser::tests::empty"},
 		{"  ● Login › rejects bad password", "Login › rejects bad password"},
 		{" FAIL  src/a.test.ts > math > adds 3ms", "src/a.test.ts > math > adds"},
+		{" FAIL   serve-bundled  playground/hmr/hmr.spec.ts > accept > works", "playground/hmr/hmr.spec.ts > accept > works"},
 		{"rspec ./spec/user_spec.rb:12 # User is valid", "./spec/user_spec.rb:12"},
 	}
 	for _, c := range cases {

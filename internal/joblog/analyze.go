@@ -39,12 +39,12 @@ type Failure struct {
 }
 
 var failedTestPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`^\s*--- FAIL: (\S+)`),                      // go test
-	regexp.MustCompile(`^FAILED (\S+?)(?: - .*)?$`),                // pytest
-	regexp.MustCompile(`^test (\S+) \.\.\. FAILED$`),               // cargo test
-	regexp.MustCompile(`^\s*● (.+ › .+)$`),                         // jest
-	regexp.MustCompile(`^\s*(?:FAIL|×)\s+(\S+ > .+?)(?: \d+ms)?$`), // vitest
-	regexp.MustCompile(`^rspec (\./\S+:\d+)`),                      // rspec
+	regexp.MustCompile(`^\s*--- FAIL: (\S+)`),                                    // go test
+	regexp.MustCompile(`^FAILED (\S+?)(?: - .*)?$`),                              // pytest
+	regexp.MustCompile(`^test (\S+) \.\.\. FAILED$`),                             // cargo test
+	regexp.MustCompile(`^\s*● (.+ › .+)$`),                                       // jest
+	regexp.MustCompile(`^\s*(?:FAIL|×)\s+(?:\S+\s{2,})?(\S+ > .+?)(?: \d+ms)?$`), // vitest, optionally with a project name
+	regexp.MustCompile(`^rspec (\./\S+:\d+)`),                                    // rspec
 }
 
 // anchorRe matches lines that usually mark where a failure starts. The

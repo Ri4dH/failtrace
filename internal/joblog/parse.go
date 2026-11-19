@@ -61,14 +61,14 @@ func Parse(raw string) *Log {
 	log.Sections = append(log.Sections, cur)
 
 	inHeader, inRunnerImage := false, false
-	block := ""
+	var hs headerState
 	for _, line := range strings.Split(raw, "\n") {
 		line = Clean(line)
 
 		if !inHeader && strings.HasPrefix(line, stepPrefix) {
 			cur = &Section{Title: strings.TrimPrefix(line, groupPrefix)}
 			log.Sections = append(log.Sections, cur)
-			inHeader, block = true, ""
+			inHeader, hs = true, headerState{}
 			continue
 		}
 		if !inHeader && line == postStepStart {
@@ -80,7 +80,7 @@ func Parse(raw string) *Log {
 			if line == endGroup {
 				inHeader = false
 			} else {
-				parseHeaderLine(&cur.Header, line, &block)
+				parseHeaderLine(&cur.Header, line, &hs)
 			}
 			continue
 		}
@@ -126,26 +126,39 @@ func Clean(line string) string {
 	return ansiRe.ReplaceAllString(line, "")
 }
 
-func parseHeaderLine(h *Header, line string, block *string) {
+// headerState tracks where parseHeaderLine is in a step header.
+type headerState struct {
+	block string // "", "shell", "env" or "with"
+	key   string // the last env or with key, for multi-line values
+}
+
+// headerEntryRe matches an env or with entry ("  NAME: value"). Other lines
+// in those blocks continue the previous value: GitHub prints multi-line
+// values (JSON, scripts) as they are, without indentation.
+var headerEntryRe = regexp.MustCompile(`^  ([A-Za-z_][A-Za-z0-9_.-]*):(?: (.*))?$`)
+
+func parseHeaderLine(h *Header, line string, st *headerState) {
 	switch {
 	case strings.HasPrefix(line, "shell: "):
 		h.Shell = strings.TrimPrefix(line, "shell: ")
-		*block = "shell"
-	case line == "env:":
-		*block = "env"
-	case line == "with:":
-		*block = "with"
-	case (*block == "env" || *block == "with") && strings.HasPrefix(line, "  "):
-		k, v, _ := strings.Cut(strings.TrimSpace(line), ":")
+		*st = headerState{block: "shell"}
+	case line == "env:" || line == "with:":
+		*st = headerState{block: strings.TrimSuffix(line, ":")}
+	case st.block == "env" || st.block == "with":
 		target := &h.Env
-		if *block == "with" {
+		if st.block == "with" {
 			target = &h.With
 		}
 		if *target == nil {
 			*target = map[string]string{}
 		}
-		(*target)[k] = strings.TrimSpace(v)
-	case *block == "":
+		if m := headerEntryRe.FindStringSubmatch(line); m != nil {
+			st.key = m[1]
+			(*target)[m[1]] = strings.TrimSpace(m[2])
+		} else if st.key != "" {
+			(*target)[st.key] += "\n" + line
+		}
+	case st.block == "":
 		h.Script = append(h.Script, line)
 	}
 }

@@ -3,6 +3,7 @@ package joblog
 import (
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -90,5 +91,32 @@ func TestParseStripsBOM(t *testing.T) {
 	lg := Parse("\uFEFF2026-11-17T10:00:00.0000000Z Current runner version: '2.1.0'\n")
 	if lg.Runner.Version != "2.1.0" {
 		t.Fatalf("runner version = %q", lg.Runner.Version)
+	}
+}
+
+func TestParseMultiLineEnv(t *testing.T) {
+	raw := strings.Join([]string{
+		"2026-11-19T07:34:41.2096450Z ##[group]Run python -m check",
+		"2026-11-19T07:34:41.2096450Z \x1b[36;1mpython -m check\x1b[0m",
+		"2026-11-19T07:34:41.2152441Z shell: /usr/bin/bash -e {0}",
+		"2026-11-19T07:34:41.2153144Z env:",
+		"2026-11-19T07:34:41.2153577Z   PYTEST_ADDOPTS: --color=yes",
+		"2026-11-19T07:34:41.2155275Z   INPUT_JOBS: {",
+		`  "build": {`,
+		`    "result": "failure"`,
+		"  }",
+		"}",
+		"2026-11-19T07:34:41.2156357Z   EMPTY:",
+		"2026-11-19T07:34:41.2157262Z ##[endgroup]",
+		"2026-11-19T07:34:41.2657820Z output",
+	}, "\n")
+	env := Parse(raw).Sections[1].Header.Env
+	want := map[string]string{
+		"PYTEST_ADDOPTS": "--color=yes",
+		"INPUT_JOBS":     "{\n  \"build\": {\n    \"result\": \"failure\"\n  }\n}",
+		"EMPTY":          "",
+	}
+	if !reflect.DeepEqual(env, want) {
+		t.Errorf("env = %q\nwant %q", env, want)
 	}
 }
